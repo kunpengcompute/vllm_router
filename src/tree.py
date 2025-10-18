@@ -391,7 +391,7 @@ class Tree:
         return used_size_per_tenant
 
     @staticmethod
-    def node_to_string(node: Node, prefix: str, is_last: bool) -> str:
+    def node_to_string(node: Node, prefix: str, is_last: bool, sum_child_count: int) -> tuple[int, str]:
         result = [prefix, "└── " if is_last else "├── ", f"'{node.text}' ["]
 
         # Add tenant information with timestamps
@@ -411,14 +411,14 @@ class Tree:
         # Process children
         children = list(node.children.items())
         child_count = len(children)
-
+        sum_child_count += child_count
         for i, (key, child_node) in enumerate(children):
             is_last_child = i == child_count - 1
             new_prefix = prefix + ("    " if is_last else "│   ")
+            sum_child_count, string = Tree.node_to_string(child_node, new_prefix, is_last_child, sum_child_count)
+            result.append(string)
 
-            result.append(Tree.node_to_string(child_node, new_prefix, is_last_child))
-
-        return "".join(result)
+        return sum_child_count, "".join(result)
 
     def pretty_print(self):
         with self.lock:
@@ -428,12 +428,16 @@ class Tree:
             result = []
             children = list(self.root.children.items())
             child_count = len(children)
-
+            sum_child_count = 0
             for i, (key, child_node) in enumerate(children):
                 is_last = i == child_count - 1
-                result.append(self.node_to_string(child_node, "", is_last))
-
-            print("".join(result))
+                sub_sum_child_count, string = self.node_to_string(child_node, "", is_last, 0)
+                result.append(string)
+                sum_child_count += sub_sum_child_count
+            result = "".join(result)
+            sum_child_count = sum_child_count + child_count
+            print(result)
+            return result, sum_child_count
 
 
 # 使用示例

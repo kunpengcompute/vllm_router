@@ -195,9 +195,9 @@ class Router:
         self.router = None
         self.router_selector = RouteSelector()
         self.backends = {}
-        self.session_timeout = aiohttp.ClientTimeout(total=60 * 60,  # 长连接支持
+        self.session_timeout = aiohttp.ClientTimeout(total=60 * 60 * 10,  # 长连接支持
                                                      sock_connect=10,  # 连接建立超时
-                                                     sock_read=120  # 单次读取超时
+                                                     sock_read=1200  # 单次读取超时
                                                      )
         self.session = aiohttp.ClientSession(timeout=self.session_timeout)
         self.lock = asyncio.Lock()
@@ -556,11 +556,6 @@ def make_lifespan(worker_urls: list, policy_config):
 def create_app(worker_urls, policy_config) -> FastAPI:
     app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config))
 
-    @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-    async def sink_handler(path_name: str, request: Request):
-        logging.warning(f"Unmatched route: {path_name}")
-        return Response(status_code=404, content="Not Found")
-
     @app.get("/health")
     async def alive():
         print("收到测活请求")
@@ -596,6 +591,15 @@ def create_app(worker_urls, policy_config) -> FastAPI:
         msg = app.router.remove_workers(urls)
         return Response(content=msg)
 
+    @app.get("/pretty_print_tree")
+    async def pretty_print_tree() -> Response:
+        if isinstance(app.router.router, CacheAwareRouter):
+            msg, node_count = app.router.router.tree.pretty_print()
+            msg = msg + "\n" + "The total numbel of node is: " + str(node_count)
+        else:
+            msg = "Non-cache-aware router does not use a multi tenant radix tree"
+        return Response(content=msg)
+
     @app.exception_handler(404)
     async def sink_handler(request: Request, exc: HTTPException):
         return JSONResponse(
@@ -605,6 +609,11 @@ def create_app(worker_urls, policy_config) -> FastAPI:
                 "message": f"invalid route: {request.url.path}",
             }
         )
+
+    @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+    async def sink_handler(path_name: str, request: Request):
+        logging.warning(f"Unmatched route: {path_name}")
+        return Response(status_code=404, content="Not Found")
 
     return app
 
