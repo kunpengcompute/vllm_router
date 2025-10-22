@@ -595,7 +595,7 @@ def create_app(worker_urls, policy_config) -> FastAPI:
     async def pretty_print_tree() -> Response:
         if isinstance(app.router.router, CacheAwareRouter):
             msg, node_count = app.router.router.tree.pretty_print()
-            msg = msg + "\n" + "The total numbel of node is: " + str(node_count)
+            msg = msg + "\n" + "The total number of node is: " + str(node_count)
         else:
             msg = "Non-cache-aware router does not use a multi tenant radix tree"
         return Response(content=msg)
