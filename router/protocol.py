@@ -7,7 +7,7 @@ import importlib
 import os
 import re
 from argparse import Namespace
-from pathlib import pathlib
+from pathlib import Path
 
 from typing import Optional, Union, Annotated, ClassVar, Literal, Any, List
 

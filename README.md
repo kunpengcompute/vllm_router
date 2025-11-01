@@ -1,5 +1,5 @@
 # 项目介绍
-**vLLM-Router是鲲鹏参与vLLM开源社区的路由插件，用于实现数据并行部署。提供高性能请求路由和负载平衡。路由器支持多种负载均衡算法，包括缓存感知、随机和轮询算法。**
+**vLLM-Router是鲲鹏参与vLLM开源社区的路由插件，旨在支持数据并行部署，提供高性能的请求路由与负载均衡能力。该路由器内置多种负载均衡算法，包括前缀缓存感知、随机和轮询，可根据实际场景灵活选择，以优化系统整体性能。**
 
 
 # 版本说明
@@ -95,25 +95,25 @@ P99 ITL (ms):                            1737.86
 
 | 参数名  |  类型 | 默认值 | 说明 | 校验规则 |
 |------|---------|-----|----------|----------|
-| urls | Union[str, List[str]]  | -   | 单个vLLm服务实例URL或vLLm服务实例URL列表 |不得为空；仅支持http://和https://协议；主机部分必须合法域名格式|
+| urls | Union[str, List[str]]  | -   | 单个vLLm服务实例URL或vLLm服务实例URL列表 |不得为空；仅支持http://和https://协议；主机部分必须合法域名格式。|
 
 **POST /remove_workers**
   
-  删除vLLM服务实例
+  删除vLLM服务实例。
 
-  参数要求同POST /add_workers接口
+  参数要求同POST /add_workers接口。
 
 **GET /list_workers**
 
-  列出所有vLLm服务实例
+  列出所有vLLm服务实例。
 
 **GET /health**
     
-检查本服务端是否存活
+检查本服务端是否存活。
 
 **GET /pretty_print_tree**
     
-当使用缓存感知路由策略时，输出前缀缓存树结构及树的节点数，方便调试
+当使用缓存感知路由策略时，输出前缀缓存树结构及树的节点数，方便调试.
 
 **路由器初始化参数**
     
@@ -131,7 +131,7 @@ P99 ITL (ms):                            1737.86
 
 | 参数名  | 类型                                              | 默认值 | 说明 | 
 |------|-------------------------------------------------|-----|----------|
-| policy | Literal["random", "round_robin", "cache_aware"] | "cache_aware"  |请求分发策略：random：随机选择；round_robin：轮询；cache_aware：前缀缓存感知（智能亲和调度）|
+| policy | Literal["random", "round_robin", "cache_aware"] | "cache_aware"  |请求分发策略：random：随机选择；round_robin：轮询；cache_aware：前缀缓存感知，若使用该路由策略，那么启动vLLM推理实例时，须设置enable-prefix-caching和enable-chunked-prefill两个参数|
 
 - Worker健康检查
 

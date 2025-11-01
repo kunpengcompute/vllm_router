@@ -145,8 +145,6 @@ Examples:
 
     args = parser.parse_args()
 
-    # RouterArgs.add_cli_args(parser, )
-    # return RouterArgs.from_cli_args(parser.parse_args(args), )
     return args
 
 
@@ -195,9 +193,10 @@ class Router:
         self.router = None
         self.router_selector = RouteSelector()
         self.backends = {}
-        self.session_timeout = aiohttp.ClientTimeout(total=60 * 60 * 10,  # 长连接支持
+        self.session_timeout = aiohttp.ClientTimeout(total=None,  # 长连接支持
                                                      sock_connect=10,  # 连接建立超时
-                                                     sock_read=1200  # 单次读取超时
+                                                     sock_read=None,  # 单次读取超时
+                                                     connect=10
                                                      )
         self.session = aiohttp.ClientSession(timeout=self.session_timeout)
         self.lock = asyncio.Lock()
@@ -269,7 +268,7 @@ class Router:
             else:
                 logger.info("Initializing worker:")
                 logger.info(f"  {worker_url} - {unhealthy_worker}")
-                time.sleep(1)
+                time.sleep(interval_secs)
 
         return is_healthy
 
