@@ -34,6 +34,7 @@ from starlette.requests import Request
 from router.protocol import CompletionRequest, WorkUrls, RouterArgs
 from src.router import RandomConfig, RoundRobinConfig, CacheAwareConfig
 from src.router import RouteSelector, PolicyConfig, CacheAwareRouter, RoundRobinRouter, RandomRouter
+from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
 
@@ -365,16 +366,24 @@ class Router:
         asyncio.create_task(self._monitor_services())
 
     async def _monitor_services(self):
+        temp_backends = copy.deepcopy(self.backends)
         while True:
             async with self.lock:
                 for _, backend in self.backends.items():
                     is_healthy = await backend.health_check(self.session)
                     if is_healthy:
                         backend.health = True
+                        if backend.base_url not in temp_backends:
+                            temp_backends[backend.base_url] = backend
+                            self.backends[backend.base_url] = backend
+                            self.router_selector.update_router(backend.base_url, self.router, add=True)
                     else:
                         backend.health = False
+                        if backend.base_url in temp_backends:
+                            temp_backends.pop(backend.base_url)
+                            self.router_selector.update_router(backend.base_url, self.router, add=False)
                     logger.info(f"Service {backend.base_url} health: {is_healthy}")
-            await asyncio.sleep(30)
+            await asyncio.sleep(3)
 
     async def send_request(self, worker_url: str, api: str):
         target_url = f"{worker_url}{api}"
@@ -536,7 +545,7 @@ class Router:
     async def get_worker_urls(self) -> List[str]:
         """Get a deep copy of the worker URLs for thread safety"""
         async with self.lock:
-            return await self.async_deepcopy(self.router.worker_urls)
+            return await self.async_deepcopy(set(self.router.worker_urls))
 
 
 def make_lifespan(worker_urls: list, policy_config):
@@ -599,6 +608,13 @@ def create_app(worker_urls, policy_config) -> FastAPI:
             msg = "Non-cache-aware router does not use a multi tenant radix tree"
         return Response(content=msg)
 
+    @app.exception_handler(NoAvailableWorkerError)
+    async def worker_exception_handler(request: Request, exc: NoAvailableWorkerError):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": str(exc)}
+        )
+                
     @app.exception_handler(404)
     async def sink_handler(request: Request, exc: HTTPException):
         return JSONResponse(

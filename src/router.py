@@ -11,6 +11,7 @@ from threading import Thread
 from typing import List, Dict, Optional, Tuple
 
 from src.tree import Tree
+from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
 
@@ -68,6 +69,9 @@ class RoundRobinRouter(RouterBase):
 
     def select_generate_worker(self, *_) -> str:
         urls_count = len(self.worker_urls)
+        if urls_count == 0:
+            logger.info("Worker list is empty")
+            raise NoAvailableWorkerError()
         self.current_index += 1
         idx = self.current_index % urls_count
         return self.worker_urls[idx]
@@ -76,7 +80,11 @@ class RoundRobinRouter(RouterBase):
 @dataclass
 class RandomRouter(RouterBase):
     def select_generate_worker(self, *_) -> str:
-        return self.worker_urls[random.randint(0, len(self.worker_urls) - 1)]
+        urls_count = len(self.worker_urls)
+        if urls_count == 0:
+            logger.info("Worker list is empty")
+            raise NoAvailableWorkerError()
+        return self.worker_urls[random.randint(0, urls_count - 1)]
 
 
 @dataclass
@@ -159,6 +167,10 @@ class CacheAwareRouter(RouterBase):
         self.tree.remove_tenant(worker_url)
 
     def select_generate_worker(self, text: str):
+        urls_count = len(self.worker_urls)
+        if urls_count == 0:
+            logger.info("Worker list is empty")
+            raise NoAvailableWorkerError()
         # Get current load statistics
         current_loads = list(self.running_queue.values())
         max_load = max(current_loads) if current_loads else 0
@@ -255,7 +267,7 @@ class RouteSelector:
 
             # 插入初始节点
             for url in worker_urls:
-                tree.insert(", url")
+                tree.insert("", url)
 
             return CacheAwareRouter(
                 worker_urls=worker_urls,
@@ -269,6 +281,16 @@ class RouteSelector:
                 interval_secs=interval_secs,
                 _eviction_thread=eviction_thread
             )
+
+    def update_router(self, worker_url: str, router: RouterBase, add: bool):
+        if add:
+            router.worker_urls.append(worker_url)
+            if isinstance(router, CacheAwareRouter):
+                router.tree.insert("", worker_url)
+        else:
+            router.worker_urls = [url for url in router.worker_urls if url != worker_url]
+            if isinstance(router, CacheAwareRouter):
+                router.tree.remove_tenant(worker_url)
 
     def get_worker_urls(self, router) -> List[str]:
         """Get a deep copy of the worker URLs for thread safety"""
