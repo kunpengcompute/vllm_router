@@ -10,6 +10,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from typing import Optional, Union, Annotated, ClassVar, Literal, Any, List
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, model_validator, ConfigDict, Field, field_validator
 from pydantic_core import Url
@@ -252,29 +253,31 @@ class WorkUrls(BaseModel):
         if not value:
             raise ValueError("URLs cannot be empty")
 
-        # 如果传入的是单个字符串，转换为列表以便统一处理
-        if isinstance(value, str):
-            urls_list = [value]
-        else:
-            urls_list = value
+        urls_list = [value] if isinstance(value, str) else value
 
-        # 验证每个 URL 的格式
-        url_pattern = re.compile(
-            r'^https?://'  # 只匹配 http:// 或 https://
-            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # 域名
-            r'localhost|'  # localhost
-            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # IP地址
-            r'(?::\d+)?'  # 可选端口
-            r'(?:/?|[/?][\w\-\.~!$&\'()*+,;=:@%]*)$',  # 路径和查询参数
-            re.IGNORECASE
-        )
-
-        for url in urls_list:
-            if not url_pattern.match(url):
-                raise ValueError(f"Invalid URL format: {url}")
+        if len(urls_list) > 1000:
+            raise ValueError("URL count exceeds 1000")
+        
+        invalid = next((u for u in urls_list if not cls.validate_url(u)), None)
+        if invalid is not None:
+            raise ValueError(f"Invalid URL: {invalid}")        
                 
-        # 返回原始格式的值
         return value
+
+    @staticmethod
+    def validate_url(url: str) -> bool:
+        if not url or len(url) > 2048:
+            return False        
+        try:
+            parsed = urlparse(url)
+            return (
+                    parsed.scheme in {'http', 'https'}
+                    and bool(parsed.netloc)
+                    and not parsed.username
+                    and not parsed.password
+            )
+        except Exception:
+            return False           
         
                                                         
 class RouterArgs(BaseModel):

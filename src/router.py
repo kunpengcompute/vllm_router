@@ -156,6 +156,7 @@ class CacheAwareRouter(RouterBase):
     balance_abs_threshold: int
     balance_rel_threshold: float
     _eviction_thread: Optional[Thread] = None
+    _stop_eviction = None
     lock: threading.RLock = threading.RLock()
 
     def delete_worker(self, worker_url: str):
@@ -165,6 +166,11 @@ class CacheAwareRouter(RouterBase):
             self.running_queue.pop(worker_url, None)
 
         self.tree.remove_tenant(worker_url)
+
+    def add_worker(self, worker_url: str):
+        with self.lock:
+            self.processed_queue[worker_url] = 0
+            self.running_queue[worker_url] = 0
 
     def select_generate_worker(self, text: str):
         urls_count = len(self.worker_urls)
@@ -244,19 +250,21 @@ class RouteSelector:
             running_queue = {url: 0 for url in worker_urls}
             processed_queue = {url: 0 for url in worker_urls}
 
+            stop_event = threading.Event()
+
             def _eviction_loop():
-                while True:
-                    # Sleep for the specified interval
-                    time.sleep(policy_config.eviction_interval_secs)
+                while not stop_event.is_set():
+                    if stop_event.wait(timeout=policy_config.eviction_interval_secs):
+                        # 收到停止信号，退出
+                        break
 
-                    # Run eviction
-                    tree.evict_tenant_by_size(policy_config.max_tree_size)
-
-                    # Print the process queue
-                    logger.info(f"Processed Queue: {processed_queue}")
-
-                    # Print the running queue
-                    logger.info(f"Running Queue: {running_queue}")
+                    try:
+                        tree.evict_tenant_by_size(policy_config.max_tree_size)
+                        logger.info(f"Processed Queue: {processed_queue}")
+                        logger.info(f"Running Queue: {running_queue}")
+                    except Exception as e:
+                        logger.error(f"Error in eviction loop: {e}", exc_info=True)
+                logger.debug("Eviction thread stopped gracefully.")
 
             # 创建后台线程
             eviction_thread = threading.Thread(
@@ -269,7 +277,7 @@ class RouteSelector:
             for url in worker_urls:
                 tree.insert("", url)
 
-            return CacheAwareRouter(
+            router = CacheAwareRouter(
                 worker_urls=worker_urls,
                 tree=tree,
                 running_queue=running_queue,
@@ -281,6 +289,9 @@ class RouteSelector:
                 interval_secs=interval_secs,
                 _eviction_thread=eviction_thread
             )
+
+            router._stop_eviction = stop_event           
+            return router
 
     def update_router(self, worker_url: str, router: RouterBase, add: bool):
         if add:
@@ -316,12 +327,8 @@ class RouteSelector:
 
             # If cache aware, initialize the queues for the new worker
             if isinstance(router, CacheAwareRouter):
-                with router.running_queue as r_q:
-                    r_q[worker_url] = 0
-                with router.processed_queue as p_q:
-                    p_q[worker_url] = 0
-                with router.tree as t:
-                    t.insert("", worker_url)
+                router.add_worker(worker_url)
+                router.tree.insert("", worker_url)
             return True, f"Successfully added worker: {worker_url}"
 
     def remove_worker(self, worker_url: str, router: RouterBase):

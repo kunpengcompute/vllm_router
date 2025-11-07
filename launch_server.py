@@ -179,11 +179,41 @@ class BackendService:
         self.health_check_interval = 30  # seconds
 
     async def health_check(self, session: aiohttp.ClientSession) -> bool:
+        if session.closed:
+            logger.warning(f"Health check skipped for {self.base_url}: session is closed")
+            return False
+
         try:
             async with session.get(f"{self.base_url}/health") as resp:
                 if resp.status == 200:
                     return True
                 return False
+
+        except aiohttp.ClientConnectorError as e:
+            # 连接类错误（DNS、拒绝连接、网络不通等）
+            logger.warning(
+                "Health check connection failed",
+                extra={"base_url": self.base_url, "error": str(e)},
+                exc_info=True            
+            )
+            return False
+
+        except aiohttp.ServerTimeoutError as e:
+            # 超时（读/写/连接超时）
+            logger.warning(
+                "Health check timed out",
+                extra={"base_url": self.base_url}
+            )
+            return False
+
+        except (aiohttp.InvalidURL, ValueError) as e:
+            # URL 无效（配置错误）
+            logger.critical(
+                "Health check failed due to invalid URL",
+                extra={"base_url": self.base_url, "error": str(e)}
+            )
+        return False
+        
         except Exception as e:
             logger.error(f"Health check failed for {self.base_url}: {str(e)}")
             return False
@@ -201,6 +231,8 @@ class Router:
                                                      )
         self.session = aiohttp.ClientSession(timeout=self.session_timeout)
         self.lock = asyncio.Lock()
+        self._monitor_task: asyncio.Task | None = None        
+        self._shutdown_event = asyncio.Event()  # 用于通知任务退出
         self._start_background_tasks()
         self.timeout_secs = 999999
         self.interval_secs = 999999
@@ -217,7 +249,7 @@ class Router:
             else:
                 logger.error(msg)
                 await self.session.close()
-                raise ValueError
+                raise NoAvailableWorkerError
         else:
             logger.warning("Need urls")
 
@@ -363,27 +395,46 @@ class Router:
         return res
 
     def _start_background_tasks(self):
-        asyncio.create_task(self._monitor_services())
+        """启动后台任务，并保存引用"""
+        if self._monitor_task is None or self._monitor_task.done():
+            self._shutdown_event.clear()
+            self._monitor_task = asyncio.create_task(self._monitor_services())
 
     async def _monitor_services(self):
         temp_backends = copy.deepcopy(self.backends)
-        while True:
-            async with self.lock:
-                for _, backend in self.backends.items():
-                    is_healthy = await backend.health_check(self.session)
-                    if is_healthy:
-                        backend.health = True
-                        if backend.base_url not in temp_backends:
-                            temp_backends[backend.base_url] = backend
-                            self.backends[backend.base_url] = backend
-                            self.router_selector.update_router(backend.base_url, self.router, add=True)
-                    else:
-                        backend.health = False
-                        if backend.base_url in temp_backends:
-                            temp_backends.pop(backend.base_url)
-                            self.router_selector.update_router(backend.base_url, self.router, add=False)
-                    logger.info(f"Service {backend.base_url} health: {is_healthy}")
-            await asyncio.sleep(3)
+        while not self._shutdown_event.is_set():
+            try:
+                async with self.lock:
+                    if self.session.closed:
+                        logger.warning("Session closed, stopping health monitor.")
+                        break
+
+                    for _, backend in self.backends.items():
+                        is_healthy = await backend.health_check(self.session)
+                        if is_healthy:
+                            backend.health = True
+                            if backend.base_url not in temp_backends:
+                                temp_backends[backend.base_url] = backend                                
+                                self.backends[backend.base_url] = backend                                
+                                self.router_selector.update_router(backend.base_url, self.router, add=True)
+                        else:
+                            backend.health = False                            
+                            if backend.base_url in temp_backends:
+                                temp_backends.pop(backend.base_url)
+                                self.router_selector.update_router(backend.base_url, self.router, add=False)
+                        logger.info(f"Service {backend.base_url} health: {is_healthy}")
+            except asyncio.CancelledError:
+                logger.info("Health monitor task was cancelled.")
+                break            
+            except Exception as e:
+                logger.error(f"Unexpected error in health monitor: {e}", exc_info=True)
+            finally:
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=3)
+                except asyncio.TimeoutError:
+                    continue  
+                except asyncio.CancelledError:
+                    break
 
     async def send_request(self, worker_url: str, api: str):
         target_url = f"{worker_url}{api}"
