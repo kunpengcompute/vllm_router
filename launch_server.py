@@ -76,6 +76,8 @@ Examples:
     )
     parser.add_argument(
         "--worker-urls",
+        "--worker_urls",
+        dest="worker_urls",
         type=str,
         default=["http://127.0.0.1:8001", "http://127.0.0.1:8002"],
         nargs="+",
@@ -92,48 +94,64 @@ Examples:
     )
     parser.add_argument(
         f"--worker-startup-timeout-secs",
+        f"--worker_startup_timeout_secs",
+        dest="worker_startup_timeout_secs",
         type=int,
         default=30,
         help="Timeout in seconds for worker startup",
     )
     parser.add_argument(
         f"--worker-startup-check-interval",
+        f"--worker_startup_check_interval",
+        dest="worker_startup_check_interval",
         type=int,
         default=1,
         help="Interval in seconds between checks for worker startup",
     )
     parser.add_argument(
         f"--cache-threshold",
+        f"--cache_threshold",
+        dest="cache_threshold",
         type=float,
         default=0.5,
         help="Cache threshold (0.0-1.0) for cache-aware routing",
     )
     parser.add_argument(
         f"--balance-abs-threshold",
+        f"--balance_abs_threshold",
+        dest="balance_abs_threshold",
         type=int,
         default=32,
         help="Load balancing is triggered when (max_load - min_load) > abs_threshold AND max_load > min_load * rel_threshold. Otherwise, use cache aware",
     )
     parser.add_argument(
         f"--balance-rel-threshold",
+        f"--balance_rel_threshold",
+        dest="balance_rel_threshold",
         type=float,
         default=1.0001,
         help="Load balancing is triggered when (max_load - min_load) > abs_threshold AND max_load > min_load * rel_threshold. Otherwise, use cache aware",
     )
     parser.add_argument(
         f"--eviction-interval-secs",
+        f"--eviction_interval_secs",
+        dest="eviction_interval_secs",
         type=int,
         default=60,
         help="Interval in seconds between cache eviction operations",
     )
     parser.add_argument(
         f"--max-tree-size",
+        f"--max_tree_size",
+        dest="max_tree_size",
         type=int,
         default=2 ** 24,
         help="Maximum size of the approximation tree for cache-aware routing",
     )
     parser.add_argument(
         f"--log-dir",
+        f"--log_dir",
+        dest="log_dir",
         type=str,
         default="",
         help="Directory to store log files",
@@ -212,7 +230,7 @@ class BackendService:
                 "Health check failed due to invalid URL",
                 extra={"base_url": self.base_url, "error": str(e)}
             )
-        return False
+            return False
         
         except Exception as e:
             logger.error(f"Health check failed for {self.base_url}: {str(e)}")
