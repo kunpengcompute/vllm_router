@@ -168,8 +168,12 @@ Examples:
 
 
 def setup_logger(log_file: str, verbose: bool = False) -> logging.Logger:
-    level = logging.DEBUG if verbose else logging.INFO
+    if logger.handlers:
+        return logger
+
+    level = logging.DEBUG if verbose else logging.info    
     logger.setLevel(level)
+    logger.propagate = False
 
     formatter = logging.Formatter(
         "[Router (Python)] %(asctime)s - %(levelname)s - %(message)s - %(filename)s:%(lineno)d",
@@ -182,10 +186,34 @@ def setup_logger(log_file: str, verbose: bool = False) -> logging.Logger:
 
     if log_file:
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        file_handler = RotatingFileHandler(log_file)
+
+        MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=MAX_BYTES,
+            backupCount=0,
+            encoding='utf-8'
+        )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
+        try:
+            os.chmod(log_file, 0o640)
+        except FileNotFoundError:
+            _original_emit = file_handler._original_emit
+
+            def emit_with_chmod(record):
+                _original_emit(record)
+                if os.path.exists(log_file):
+                    try:
+                        os.chmod(log_file, 0o640)
+                        file_handler.emit = _original_emit                    
+                    except OSError:
+                        pass
+
+            file_handler.emit = emit_with_chmod
+    
     return logger
 
 
