@@ -13,6 +13,7 @@ GPU：沐曦C500
 
 ## 软件配置
 操作系统：openEuler 22.03 LTS SP2
+python版本：python >= 3.10
 
 
 # 快速上手
