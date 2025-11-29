@@ -171,7 +171,7 @@ def setup_logger(log_file: str, verbose: bool = False) -> logging.Logger:
     if logger.handlers:
         return logger
 
-    level = logging.DEBUG if verbose else logging.info    
+    level = logging.DEBUG if verbose else logging.INFO    
     logger.setLevel(level)
     logger.propagate = False
 
