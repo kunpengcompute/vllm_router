@@ -310,8 +310,8 @@ class RouterArgs(BaseModel):
     @field_validator('port')
     @classmethod    
     def validate_port(cls, v: int) -> int:
-        if not (1 <= v <= 65535):
-            raise ValueError(f"port {v} is not a valid port number (1-65535)")
+        if not (7000 <= v <= 9000):
+            raise ValueError(f"port {v} is not a valid port number (7000~9000)")
         return v
         
     @field_validator('worker_urls')
