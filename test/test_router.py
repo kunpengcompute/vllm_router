@@ -44,7 +44,7 @@ class DummyTree:
         pass  # no-op for test
 
 
-class TestRouters(unittest.TestCase):
+class TestRouters(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.worker_urls = ["http://worker1", "http://worker2", "http://worker3"]
