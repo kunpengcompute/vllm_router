@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 # 测试目标代码中的函数和类
 from launch_server import parse_router_args, Router
-from protocol import RouterArgs
+from router.protocol import RouterArgs
 
 
 class TestParseRouterArgs(unittest.TestCase):
