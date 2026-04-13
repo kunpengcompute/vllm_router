@@ -34,7 +34,7 @@
   python launch_server.py --host 127.0.0.1 --port xxxx --worker_urls http://127.0.0.1:xxxx http://127.0.0.1:xxxx --policy round_robin
   ```
 
-  其中port参数为路由的对外端口，如8008，worker_urls为启动的vllm实例的url，policy为路由策略，具体参数见《[API参考](./api_referenc.md)》。
+  其中port参数为路由的对外端口，如8008，worker_urls为启动的vllm实例的url，policy为路由策略，具体参数见《[API参考](./api_reference.md)》。
 
 ## 安装后验证
 

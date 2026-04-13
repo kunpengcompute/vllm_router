@@ -1,36 +1,36 @@
 # API参考
 
-**POST /v1/completions**
+## POST /v1/completions
 
-   本接口为文本补全（completion）服务的请求参数规范。由于本软件实现的是对vLLM服务实例的路由，需要将接收到的请求透传给vLLM实例，故该接口完全兼容vLLM（0.8.2）的/v1/completions接口。
+本接口为文本补全（completion）服务的请求参数规范。由于本软件实现的是对vLLM服务实例的路由，需要将接收到的请求透传给vLLM实例，故该接口完全兼容vLLM（0.8.2）的/v1/completions接口。
    
-**POST /add_workers**
+## POST /add_workers
   
-  增加vLLM服务实例
+增加vLLM服务实例
 
 | 参数名  |  类型 | 默认值 | 说明 | 校验规则 |
 |------|---------|-----|----------|----------|
 | urls | Union[str, List[str]]  | -   | 单个vLLm服务实例URL或vLLm服务实例URL列表 |不得为空；仅支持http://和https://协议；主机部分必须合法域名格式。|
 
-**POST /remove_workers**
+## POST /remove_workers
   
-  删除vLLM服务实例。
+删除vLLM服务实例。
 
-  参数要求同POST /add_workers接口。
+参数要求同POST /add_workers接口。
 
-**GET /list_workers**
+## GET /list_workers
 
-  列出所有vLLm服务实例。
+列出所有vLLm服务实例。
 
-**GET /health**
+## GET /health
     
 检查本服务端是否存活。
 
-**GET /pretty_print_tree**
+## GET /pretty_print_tree
     
-当使用缓存感知路由策略时，输出前缀缓存树结构及树的节点数，方便调试.
+当使用缓存感知路由策略时，输出前缀缓存树结构及树的节点数，方便调试。
 
-**路由器初始化参数**
+## 路由器初始化参数
     
 本接口定义了请求路由服务（Router） 的启动配置参数，用于初始化一个智能分发请求到多个vLLM服务实例的路由服务。支持多种负载均衡策略（随机、轮询、缓存感知），并内置健康检查、缓存亲和性调度、日志管理等企业级功能。
 
