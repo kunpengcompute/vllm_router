@@ -12,49 +12,52 @@ vLLM-Router是鲲鹏参与vLLM开源社区的路由插件，旨在支持数据�
 vllm-router/
 ├── router                    
 │   ├── __init__.py        
-│   └── protocol.py           # 路由接口定义
-├── src                       # 源代码实现目录
+│   └── protocol.py              # 路由接口定义
+├── src                          # 源代码实现目录
 │   ├── __init__.py        
-│   ├── router.py             # 路由功能实现
-│   └── tree.py               # 前缀缓存树实现
+│   ├── router.py                # 路由功能实现
+│   └── tree.py                  # 前缀缓存树实现
 ├── test                      
-│   ├── online_test1.py       # 模拟第一个服务端
-│   ├── online_test2.py       # 模拟第二个服务端
-│   ├── test_router.py        # 路由功能单元测试
-│   ├── test_server.py        # 服务端单元测试
-│   └── test_tree.py          # 前缀缓存树单元测试
+│   ├── online_test1.py          # 模拟第一个服务端
+│   ├── online_test2.py          # 模拟第二个服务端
+│   ├── test_router.py           # 路由功能单元测试
+│   ├── test_server.py           # 服务端单元测试
+│   └── test_tree.py             # 前缀缓存树单元测试
 ├── utils                     
 │   ├── __init__.py            
-│   ├── error.py              # 自定义错误
-│   └── logger.py             # 日志
-├── docs               
-│   ├── api_reference.md      # api参考             
-│   ├── menu_vllm_router.md   # 文档指南            
-│   ├── release_notes.md      # 每个发布版本的基础信息和特性更新信息
-│   └── user_guide.md         # 用户指南
-├── LICENSE                   # 开源许可证文件
-├── CC-BY                     # 开源文档许可证文件
-├── README.md                 # 项目说明文档
-├── launch_server.py          # 服务启动入口脚本
-└── requirements.txt          # Python依赖列表文件
+│   ├── error.py                 # 自定义错误
+│   └── logger.py                # 日志
+├── docs
+|   └── zh                       # 中文文档目录
+│      ├── api_reference.md      # API参考
+│      ├── menu_vllm_router.md   # 文档指南
+│      ├── release_notes.md      # 每个发布版本的基础信息和特性更新信息
+│      └── user_guide.md         # 用户指南
+├── LICENSE                      # 开源许可证文件
+├── CC-BY                        # 开源文档许可证文件
+├── README.md                    # 项目说明文档
+├── launch_server.py             # 服务启动入口脚本
+└── requirements.txt             # Python依赖列表文件
 
 ```
 
 ## 版本说明
-vLLM-Router本身的版本说明，具体请参见[版本说明](./docs/zh/release_notes.md)。
+
+vLLM-Router本身的版本说明，具体请参见《[版本说明书](./docs/zh/release_notes.md)》。
 
 ## 学习文档
-| 资源类别| 资源名称 | 资源简介|
-| ------------ | ------------ |------------ |
-|  文档 | [版本说明书](./docs/zh/release_notes.md) | 提供vLLM-Router每个发布版本的基础信息和特性更新信息。 |
-|  文档 | [用户指南](./docs/zh/user_guide.md) | 提供vLLM-Router快速上手指导。 |
-|  文档 | [API参考](./docs/zh/api_reference.md) | 提供vLLM-Router的接口说明。 |
+
+| 资源名称 | 资源简介 |
+| ------------ | ------------ |
+| [版本说明书](./docs/zh/release_notes.md) | 提供vLLM-Router每个发布版本的基础信息和特性更新信息。 |
+| [用户指南](./docs/zh/user_guide.md) | 提供vLLM-Router快速上手指导。 |
+| [API参考](./docs/zh/api_reference.md) | 提供vLLM-Router的接口说明。 |
 
 ## 通信矩阵
 
-|  源设备 |  源IP地址 |  源端口 | 目的设备  | 目的IP地址  | 目的端口（侦听） | 协议 | 端口说明 | 侦听端口是否可更改 | 认证方式 | 加密方式 | 所属平面 | 版本 | 特殊场景 |
+| 源设备 | 源IP地址 | 源端口 | 目的设备 | 目的IP地址 | 目的端口（侦听） | 协议 | 端口说明 | 侦听端口是否可更改 | 认证方式 | 加密方式 | 所属平面 | 版本 | 特殊场景 |
 | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ |
-| 用户所用服务器  | 用户服务器IP地址  | * | 运行vllm-router服务的服务器  |  运行vllm-router服务的IP地址 | 7000~9000 | HTTP/HTTPS | 接收用户推理请求 | 是 | N/A | N/A | 业务面 | 所有版本 | 无 |
+| 用户所用服务器 | 用户服务器IP地址 | * | 运行vLLM-Router服务的服务器 | 运行vLLM-Router服务的IP地址 | 7000~9000 | HTTP/HTTPS | 接收用户推理请求 | 是 | N/A | N/A | 业务面 | 所有版本 | 无 |
 
 ## 贡献声明
 

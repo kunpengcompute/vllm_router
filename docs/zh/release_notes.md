@@ -27,7 +27,7 @@
 
 | 操作系统 | CPU类型 | 其他 |
 | -- | -- | -- |
-| openEuler 22.03 LTS SP2 | 鲲鹏920新型号处理器 | python >= 3.10 |
+| openEuler 22.03 LTS SP2 | 鲲鹏920新型号处理器 | Python >= 3.10 |
 
 ## V1.0.0
 
