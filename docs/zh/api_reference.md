@@ -10,7 +10,7 @@
 
 | 参数名  |  类型 | 说明 | 校验规则 |
 |------|---------|----------|----------|
-| urls | Union[str, List[str]]   | 单个vLLM服务实例URL或vLLM服务实例URL列表 | 不得为空；仅支持http://和https://协议；主机部分必须合法域名格式。|
+| urls | Union[str, List[str]]   | 单个vLLM服务实例URL或vLLM服务实例URL列表 | 不得为空；仅支持`http://`和`https://`协议；主机部分必须合法域名格式。|
 
 ## POST /remove_workers
   
@@ -40,7 +40,7 @@
   |------|---------|-------|------|
   | host | str | 路由服务监听的IPv4地址 | 必须是合法IPv4地址（如 0.0.0.0,127.0.0.1），每个段在0~255范围内 。 |
   | port | int | 路由服务监听端口 | 有效端口范围：7000 ~ 9000 。 |
-  | worker_urls | Union[str, List[str]] | 后端 Worker 服务地址列表（支持单个字符串或列表） | 每个URL必须以http://或https://开头，且为合法URL格式。 |
+  | worker_urls | Union[str, List[str]] | 后端 Worker 服务地址列表（支持单个字符串或列表） | 每个URL必须以`http://`或`https://`开头，且为合法URL格式。 |
 
 - 负载均衡策略
 
