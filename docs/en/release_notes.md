@@ -10,6 +10,11 @@
 <td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.1.1 "><p id="p1597721693713"><a name="p1597721693713"></a><a name="p1597721693713"></a>Kunpeng BoostKit</p>
 </td>
 </tr>
+<tr id="row1930811171892"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.3.1"><p id="p2030912172097"><a name="p2030912172097"></a><a name="p2030912172097"></a>BoostKit Version number</p>
+</th>
+<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.3.1 "><p id="p1730912179911"><a name="p1730912179911"></a><a name="p1730912179911"></a>26.1.RC1</p>
+</td>
+</tr>
 <tr id="row1930811171892"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.3.1"><p id="p2030912172097"><a name="p2030912172097"></a><a name="p2030912172097"></a>Software Name</p>
 </th>
 <td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.3.1 "><p id="p1730912179911"><a name="p1730912179911"></a><a name="p1730912179911"></a>vLLM-Router</p>
@@ -25,9 +30,10 @@
 
 ### OS, CPU, and Compiler
 
-|OS|CPU|
-|--|--|
-|openEuler 22.03 LTS SP2|New Kunpeng 920 processor model|
+|OS|CPU|Other|
+|--|--|----|
+|openEuler 22.03 LTS SP2|New Kunpeng 920 processor model|Python >= 3.10
+|
 
 ### Software Configuration
 
