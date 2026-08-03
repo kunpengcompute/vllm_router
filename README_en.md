@@ -47,11 +47,11 @@ For details about the vLLM-Router version description, see [Release Notes](./doc
 
 ## Documents
 
-|  Resource Type|  Resource Name  |Resource Description|
-| ------------ | ------------ |------------ |
-|  Document| [API Reference](./docs/en/api_reference.md)| Provides the vLLM-Router API description.|
-|  Document| [Release Notes](./docs/en/release_notes.md)| Provides basic information and feature updates of each vLLM-Router version.|
-|  Document| [User Guide](./docs/en/user_guide.md)| Provides a quick start guide for vLLM-Router.|
+| Resource Name  |Resource Description|
+| ------------ |------------ |
+| [API Reference](./docs/en/api_reference.md)| Provides the vLLM-Router API description.|
+| [Release Notes](./docs/en/release_notes.md)| Provides basic information and feature updates of each vLLM-Router version.|
+| [User Guide](./docs/en/user_guide.md)| Provides a quick start guide for vLLM-Router.|
 
 ## Communication Matrix
 
