@@ -10,9 +10,9 @@
 <td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.1.1 "><p id="p1597721693713"><a name="p1597721693713"></a><a name="p1597721693713"></a>Kunpeng BoostKit</p>
 </td>
 </tr>
-<tr id="row1930811171892"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.3.1"><p id="p2030912172097"><a name="p2030912172097"></a><a name="p2030912172097"></a>BoostKit 版本号</p>
+<tr id="row1930811171893"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.3.2"><p id="p2030912172097"><a name="p2030912172097"></a><a name="p2030912172098"></a>BoostKit 版本号</p>
 </th>
-<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.3.1 "><p id="p1730912179911"><a name="p1730912179911"></a><a name="p1730912179911"></a>26.1.RC1</p>
+<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.3.2 "><p id="p1730912179912"><a name="p1730912179912"></a><a name="p1730912179912"></a>26.1.RC1</p>
 </td>
 </tr>
 <tr id="row1930811171892"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.3.1"><p id="p2030912172097"><a name="p2030912172097"></a><a name="p2030912172097"></a>软件名称</p>
