@@ -290,7 +290,7 @@ class RouteSelector:
                 _eviction_thread=eviction_thread
             )
 
-            router._stop_eviction = stop_event           
+            router._stop_eviction = stop_event
             return router
 
     def update_router(self, worker_url: str, router: RouterBase, add: bool):
