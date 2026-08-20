@@ -41,9 +41,9 @@ class OpenAIBaseModel(BaseModel):
     def __log_extra_fields__(cls, data, handler):
         result = handler(data)
         if not isinstance(data, dict):
-            return result        
-        field_names = cls.field_names        
-        if field_names is None:                                                                                    
+            return result
+        field_names = cls.field_names
+        if field_names is None:
             # Get all class field names and their potential aliases
             field_names = set()
             for field_name, field in cls.model_fields.items():
@@ -51,12 +51,12 @@ class OpenAIBaseModel(BaseModel):
                 if alias := getattr(field, 'alias', None):
                     field_names.add(alias)
             cls.field_names = field_names
-        
+
         # Compare against both field names and aliases
         if any(k not in field_names for k in data):
             logger.warning(
                 "The following fields were present in the request "
-                "but ignored: %s", 
+                "but ignored: %s",
                 data.keys() - field_names)
         return result
 
@@ -67,8 +67,8 @@ class StreamOptions(OpenAIBaseModel):
 
 
 class JsonSchemaResponseFormat(OpenAIBaseModel):
-    name: str    
-    description: Optional[str] = None    
+    name: str
+    description: Optional[str] = None
     # schema is the field in openai but that causes conflicts with pydantic so
     # instead use json_schema with an alias
     json_schema: Optional[dict[str, Any]] = Field(default=None, alias='schema')
@@ -84,40 +84,40 @@ class ResponseFormat(OpenAIBaseModel):
 class CompletionRequest(OpenAIBaseModel):
     # Ordered by official OpenAI API documentation
     # https://platform.openai.com/docs/api-reference/completions/create
-    model: Optional[str] = None    
+    model: Optional[str] = None
     prompt: Union[list[int], list[list[int]], str, list[str]]
-    best_of: Optional[int] = None    
-    echo: Optional[bool] = False    
+    best_of: Optional[int] = None
+    echo: Optional[bool] = False
     frequency_penalty: Optional[float] = 0.0
-    logit_bias: Optional[dict[str, float]] = None    
-    logprobs: Optional[int] = None    
+    logit_bias: Optional[dict[str, float]] = None
+    logprobs: Optional[int] = None
     max_tokens: Optional[int] = 16
     n: int = 1
     presence_penalty: Optional[float] = 0.0
     seed: Optional[int] = Field(None, ge=_LONG_INFO.min, le=_LONG_INFO.max)
     stop: Optional[Union[str, list[str]]] = Field(default_factory=list)
-    stream: Optional[bool] = False    
-    stream_options: Optional[StreamOptions] = None    
-    suffix: Optional[str] = None    
-    temperature: Optional[float] = None    
-    top_p: Optional[float] = None    
+    stream: Optional[bool] = False
+    stream_options: Optional[StreamOptions] = None
+    suffix: Optional[str] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
     user: Optional[str] = None
 
     # doc: begin-completion-sampling-params
-    use_beam_search: bool = False    
-    top_k: Optional[int] = None    
-    min_p: Optional[float] = None    
-    repetition_penalty: Optional[float] = None    
+    use_beam_search: bool = False
+    top_k: Optional[int] = None
+    min_p: Optional[float] = None
+    repetition_penalty: Optional[float] = None
     length_penalty: float = 1.0
     stop_token_ids: Optional[list[int]] = Field(default_factory=list)
-    include_stop_str_in_output: bool = False    
-    ignore_eos: bool = False    
+    include_stop_str_in_output: bool = False
+    ignore_eos: bool = False
     min_tokens: int = 0
-    skip_special_tokens: bool = True    
-    spaces_between_special_tokens: bool = True    
-    truncate_prompt_tokens: Optional[Annotated[int, Field(ge=1)]] = None    
-    allowed_token_ids: Optional[list[int]] = None    
-    prompt_logprobs: Optional[int] = None    
+    skip_special_tokens: bool = True
+    spaces_between_special_tokens: bool = True
+    truncate_prompt_tokens: Optional[Annotated[int, Field(ge=1)]] = None
+    allowed_token_ids: Optional[list[int]] = None
+    prompt_logprobs: Optional[int] = None
     # doc: end-completion-sampling-params
 
     # doc: begin-completion-extra-params
@@ -204,7 +204,7 @@ class CompletionRequest(OpenAIBaseModel):
     }
 
     @model_validator(mode="before")
-    @classmethod    
+    @classmethod
     def check_guided_decoding_count(cls, data):
         guide_count = sum([
             "guided_json" in data and data["guided_json"] is not None,
@@ -218,7 +218,7 @@ class CompletionRequest(OpenAIBaseModel):
         return data
 
         @model_validator(mode="before")
-        @classmethod    
+        @classmethod
         def check_logprobs(cls, data):
             if (prompt_logprobs := data.get("prompt_logprobs")) is not None:
                 if data.get("stream") and prompt_logprobs > 0:
@@ -232,9 +232,9 @@ class CompletionRequest(OpenAIBaseModel):
                 raise ValueError("`logprobs` must be a positive value.")
 
             return data
-           
+
         @model_validator(mode="before")
-        @classmethod    
+        @classmethod
         def validate_stream_options(cls, data):
             if data.get("stream_options") and not data.get("stream"):
                 raise ValueError(
@@ -247,7 +247,7 @@ class WorkUrls(BaseModel):
     urls: Union[str, List[str]]
 
     @field_validator("urls")
-    @classmethod    
+    @classmethod
     def check_urls(cls, value: Union[str, List[str]]) -> Union[str, List[str]]:
         # 确保值不为空
         if not value:
@@ -257,17 +257,17 @@ class WorkUrls(BaseModel):
 
         if len(urls_list) > 1000:
             raise ValueError("URL count exceeds 1000")
-        
+
         invalid = next((u for u in urls_list if not cls.validate_url(u)), None)
         if invalid is not None:
-            raise ValueError(f"Invalid URL: {invalid}")        
-                
+            raise ValueError(f"Invalid URL: {invalid}")
+
         return value
 
     @staticmethod
     def validate_url(url: str) -> bool:
         if not url or len(url) > 2048:
-            return False        
+            return False
         try:
             parsed = urlparse(url)
             return (
@@ -277,12 +277,12 @@ class WorkUrls(BaseModel):
                     and not parsed.password
             )
         except Exception:
-            return False           
-        
-                                                        
+            return False
+
+
 class RouterArgs(BaseModel):
     host: str
-    port: int    
+    port: int
     worker_urls: Union[str, List[str]]
     policy: Literal["random", "round_robin", "cache_aware"] = "cache_aware"
     worker_startup_timeout_secs: int = Field(300, ge=3, le=500)
@@ -294,26 +294,26 @@ class RouterArgs(BaseModel):
     max_tree_size: int = Field(2 ** 24, ge=2 ** 15, le=2 ** 26)
     log_dir: str = Field(""),
     verbose: bool = Field(False)
-    
+
     @field_validator('host')
     @classmethod
     def validate_host(cls, v: str) -> str:
         ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-        
+
         if not (re.match(ipv4_pattern, v)):
             raise ValueError(f"host '{v}' is not a valid IP address")
         if re.match(ipv4_pattern, v):
             if not all(0 <= int(part) <= 255 for part in v.split('.')):
                 raise ValueError(f"host '{v}' contains invalid IPv4 octets")
         return v
-                
+
     @field_validator('port')
-    @classmethod    
+    @classmethod
     def validate_port(cls, v: int) -> int:
         if not (7000 <= v <= 9000):
             raise ValueError(f"port {v} is not a valid port number (7000~9000)")
         return v
-        
+
     @field_validator('worker_urls')
     @classmethod
     def validate_worker_urls(cls, v: Union[str, List[str]]) -> List[str]:
@@ -328,39 +328,39 @@ class RouterArgs(BaseModel):
             except Exception:
                 raise ValueError(f"Invalid URL format: {url}")
         return urls  # 统一转为 List[str]
-        
+
     @field_validator('log_dir')
     @classmethod
     def validate_log_dir(cls, v: str) -> str:
         if v:
             path = Path(v).resolve()
-            
+
             if not path.is_absolute():
                 raise ValueError(f"Log path must be absolute, got: {v}")
-                            
+
             parent = path.parent
             if not parent.exists():
                 raise ValueError(f"Parent directory does not exist: {parent}")
-                                                                                            
+
             if not os.access(parent, os.W_OK):
                 raise ValueError(f"Parent directory is not writable: {parent}")
-                            
+
             if path.exists() and not os.access(path, os.W_OK):
                 raise ValueError(f"Log file exists but is not writable: {path}")
-                
+
             return str(path)
         else:
             return ""
-                
+
     @model_validator(mode='after')
     def check_host_port_not_in_worker_urls(self) -> "RouterArgs":
         host = self.host
         port = self.port
         worker_urls = self.worker_urls
-            
+
         # 构造 host:port 字符串用于匹配
         host_port_combo = f"{host}:{port}"
-                        
+
         # 检查每个 work_url 是否包含 host:port
         for url in worker_urls:
             if host_port_combo in url:
@@ -368,14 +368,14 @@ class RouterArgs(BaseModel):
                     f" '{host_port_combo}' is not allowed to appear in work_urls. "
                     f"Found in URL: {url}"
                 )
-                                    
+
         worker_startup_timeout_secs = self.worker_startup_timeout_secs
         worker_startup_check_interval = self.worker_startup_check_interval
         if worker_startup_check_interval > worker_startup_timeout_secs:
             raise ValueError(
                 f" '{worker_startup_check_interval}' be less than {worker_startup_timeout_secs}. "
             )
-                            
+
         return self
 
 
@@ -405,8 +405,8 @@ class RouterArgs(BaseModel):
                 "server. See --logits-processor-pattern engine argugment "
                 "for more information.")
         return None
-                    
-                    
+
+
     def resolve_obj_by_qualname(qualname: str) -> Any:
         """
         Resolve an object by its fully qualified name.
@@ -414,4 +414,3 @@ class RouterArgs(BaseModel):
         module_name, obj_name = qualname.rsplit(".", 1)
         module = importlib.import_module(module_name)
         return getattr(module, obj_name)
-                                                        

@@ -1,0 +1,31 @@
+minimum_pre_commit_version: 4.0.0
+exclude: ^LICENSE|^docs/|\.(md|html|csv|svg)$
+
+default_stages: [pre-commit]
+ci:
+  autofix_prs: false
+  autoupdate_schedule: monthly
+
+repos:
+  # pre-commit 基础检查
+  - repo: https://gitcode.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]  # 兼容K8S
+        exclude: mkdocs\.yml$  # !!python/name: 标签不兼容 safe_load
+      - id: check-added-large-files  # 拦截>50MB文件（默认阈值）
+      - id: check-merge-conflict     # 检测未解决的合并冲突（<<<<<<< HEAD）
+      - id: detect-private-key       # 检测硬编码的私钥/密钥
+      - id: check-json
+
+#--------------- C++ 核心检查 ---------------------------------------------
+  # clang-format：C/C++ 代码格式化
+  - repo: https://gitcode.com/pre-commit-clang/mirrors-clang-format
+    rev: v22.1.5
+    hooks:
+      - id: clang-format
+        types_or: [c, c++]
+        exclude: ^build/|(^|/)third_party/|^test/

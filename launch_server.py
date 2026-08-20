@@ -171,7 +171,7 @@ def setup_logger(log_file: str, verbose: bool = False) -> logging.Logger:
     if logger.handlers:
         return logger
 
-    level = logging.DEBUG if verbose else logging.INFO    
+    level = logging.DEBUG if verbose else logging.INFO
     logger.setLevel(level)
     logger.propagate = False
 
@@ -208,12 +208,12 @@ def setup_logger(log_file: str, verbose: bool = False) -> logging.Logger:
                 if os.path.exists(log_file):
                     try:
                         os.chmod(log_file, 0o640)
-                        file_handler.emit = _original_emit                    
+                        file_handler.emit = _original_emit
                     except OSError:
                         pass
 
             file_handler.emit = emit_with_chmod
-    
+
     return logger
 
 
@@ -240,7 +240,7 @@ class BackendService:
             logger.warning(
                 "Health check connection failed",
                 extra={"base_url": self.base_url, "error": str(e)},
-                exc_info=True            
+                exc_info=True
             )
             return False
 
@@ -259,7 +259,7 @@ class BackendService:
                 extra={"base_url": self.base_url, "error": str(e)}
             )
             return False
-        
+
         except Exception as e:
             logger.error(f"Health check failed for {self.base_url}: {str(e)}")
             return False
@@ -277,7 +277,7 @@ class Router:
                                                      )
         self.session = aiohttp.ClientSession(timeout=self.session_timeout)
         self.lock = asyncio.Lock()
-        self._monitor_task: asyncio.Task | None = None        
+        self._monitor_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()  # 用于通知任务退出
         self._start_background_tasks()
         self.timeout_secs = 999999
@@ -460,25 +460,25 @@ class Router:
                         if is_healthy:
                             backend.health = True
                             if backend.base_url not in temp_backends:
-                                temp_backends[backend.base_url] = backend                                
-                                self.backends[backend.base_url] = backend                                
+                                temp_backends[backend.base_url] = backend
+                                self.backends[backend.base_url] = backend
                                 self.router_selector.update_router(backend.base_url, self.router, add=True)
                         else:
-                            backend.health = False                            
+                            backend.health = False
                             if backend.base_url in temp_backends:
                                 temp_backends.pop(backend.base_url)
                                 self.router_selector.update_router(backend.base_url, self.router, add=False)
                         logger.info(f"Service {backend.base_url} health: {is_healthy}")
             except asyncio.CancelledError:
                 logger.info("Health monitor task was cancelled.")
-                break            
+                break
             except Exception as e:
                 logger.error(f"Unexpected error in health monitor: {e}", exc_info=True)
             finally:
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=3)
                 except asyncio.TimeoutError:
-                    continue  
+                    continue
                 except asyncio.CancelledError:
                     break
 
@@ -711,7 +711,7 @@ def create_app(worker_urls, policy_config) -> FastAPI:
             status_code=503,
             content={"detail": str(exc)}
         )
-                
+
     @app.exception_handler(404)
     async def sink_handler(request: Request, exc: HTTPException):
         return JSONResponse(
