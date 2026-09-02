@@ -74,8 +74,4 @@ vLLM-Router本身的版本说明，具体请参见《[版本说明书](./docs/zh
 
 ## 致谢
 
-vLLM-Router由华为公司的下列部门联合贡献：
-
-鲲鹏计算Boostkit开发部
-
 感谢来自社区的每一个PR，欢迎贡献vLLM-Router！
