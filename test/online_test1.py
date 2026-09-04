@@ -7,7 +7,6 @@ app = FastAPI()
 
 @app.post("/v1/completions")
 async def generate(body: CompletionRequest):
-    body_ = body.model_dump()
     print(body)
     return "OK1"
 

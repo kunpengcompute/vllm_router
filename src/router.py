@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from src.tree import Tree
 from utils.error import NoAvailableWorkerError
@@ -47,7 +47,7 @@ class CacheAwareConfig(PolicyConfig):
     balance_abs_threshold: int = 32
     balance_rel_threshold: float = 1.0001
     eviction_interval_secs: int = 60
-    max_tree_size: int = 2 ** 24
+    max_tree_size: int = 2**24
 
 
 class RouterType(Enum):
@@ -90,65 +90,66 @@ class RandomRouter(RouterBase):
 @dataclass
 class CacheAwareRouter(RouterBase):
     """
-        Cache-Aware Load Balancing Router
+    Cache-Aware Load Balancing Router
 
-        This router combines two strategies to optimize both cache utilization and request distribution:
+    This router combines two strategies to optimize both cache utilization and request distribution:
 
-        1. Cache-Aware Routing (Approximate Tree)
-        2. Load Balancing (Shortest Queue with Balance Thresholds)
+    1. Cache-Aware Routing (Approximate Tree)
+    2. Load Balancing (Shortest Queue with Balance Thresholds)
 
-        The router dynamically switches between these strategies based on load conditions:
-        - Uses load balancing when the system is imbalanced
-        - Uses cache-aware routing when the system is balanced
+    The router dynamically switches between these strategies based on load conditions:
+    - Uses load balancing when the system is imbalanced
+    - Uses cache-aware routing when the system is balanced
 
-        A system is considered imbalanced if both conditions are met:
-        1. (max - min) > abs_threshold
-        2. max > rel_threshold * min
+    A system is considered imbalanced if both conditions are met:
+    1. (max - min) > abs_threshold
+    2. max > rel_threshold * min
 
-        Strategy Details:
+    Strategy Details:
 
-        1. Cache-Aware Routing (Approximate Tree)
-        -------------------------------------------
-        This strategy maintains an approximate radix tree for each worker based on request history,
-        eliminating the need for direct cache state queries. The tree stores raw text characters
-        instead of token IDs to avoid tokenization overhead.
+    1. Cache-Aware Routing (Approximate Tree)
+    -------------------------------------------
+    This strategy maintains an approximate radix tree for each worker based on request history,
+    eliminating the need for direct cache state queries. The tree stores raw text characters
+    instead of token IDs to avoid tokenization overhead.
 
-        Process:
-        a. For each request, find the worker with the highest prefix match
-        b. If match rate > cache_threshold:
-        Route to the worker with the highest match (likely has relevant data cached)
-        c. If match rate ≤ cache_threshold:
-        Route to the worker with the smallest tree size (most available cache capacity)
-        d. Background maintenance:
-        Periodically evict least recently used leaf nodes to prevent memory overflow
+    Process:
+    a. For each request, find the worker with the highest prefix match
+    b. If match rate > cache_threshold:
+    Route to the worker with the highest match (likely has relevant data cached)
+    c. If match rate ≤ cache_threshold:
+    Route to the worker with the smallest tree size (most available cache capacity)
+    d. Background maintenance:
+    Periodically evict least recently used leaf nodes to prevent memory overflow
 
-        2. Load Balancing (Shortest Queue)
-        -------------------------------------------
-        This strategy tracks pending request counts per worker and routes new requests
-        to the least busy worker when the system is detected to be imbalanced.
+    2. Load Balancing (Shortest Queue)
+    -------------------------------------------
+    This strategy tracks pending request counts per worker and routes new requests
+    to the least busy worker when the system is detected to be imbalanced.
 
-        Configuration Parameters:
-        ------------------------
-        1. cache_threshold: (float, 0.0 to 1.0)
-        Minimum prefix match ratio to use highest-match routing.
-        Below this threshold, routes to worker with most available cache space.
+    Configuration Parameters:
+    ------------------------
+    1. cache_threshold: (float, 0.0 to 1.0)
+    Minimum prefix match ratio to use highest-match routing.
+    Below this threshold, routes to worker with most available cache space.
 
-        2. balance_abs_threshold: (integer)
-        Absolute difference threshold for load imbalance detection.
-        System is potentially imbalanced if (max_load - min_load) > abs_threshold
+    2. balance_abs_threshold: (integer)
+    Absolute difference threshold for load imbalance detection.
+    System is potentially imbalanced if (max_load - min_load) > abs_threshold
 
-        3. balance_rel_threshold: (float)
-        Relative ratio threshold for load imbalance detection.
-        System is potentially imbalanced if max_load > min_load * rel_threshold
-        Used in conjunction with abs_threshold to determine final imbalance state.
+    3. balance_rel_threshold: (float)
+    Relative ratio threshold for load imbalance detection.
+    System is potentially imbalanced if max_load > min_load * rel_threshold
+    Used in conjunction with abs_threshold to determine final imbalance state.
 
-        4. eviction_interval_secs: (integer)
-        Interval between LRU eviction cycles for the approximate trees.
+    4. eviction_interval_secs: (integer)
+    Interval between LRU eviction cycles for the approximate trees.
 
-        5. max_tree_size: (integer)
-        Maximum nodes per tree. When exceeded, LRU leaf nodes are evicted
-        during the next eviction cycle.
+    5. max_tree_size: (integer)
+    Maximum nodes per tree. When exceeded, LRU leaf nodes are evicted
+    during the next eviction cycle.
     """
+
     tree: Tree
     running_queue: Dict[str, int]
     processed_queue: Dict[str, int]
@@ -187,11 +188,12 @@ class CacheAwareRouter(RouterBase):
         if max_load - min_load > self.balance_abs_threshold and max_load > min_load * self.balance_rel_threshold:
             logger.info(
                 f"Load balancing triggered due to workload imbalance:\n Max load: {max_load} Min load: {min_load} "
-                f"\n Current running queue: {self.running_queue}")
+                f"\n Current running queue: {self.running_queue}"
+            )
 
             # Use the shortest queue routing when load is imbalanced
             try:
-                selected_url = (min(self.running_queue.items(), key=lambda x: x[1])[0])
+                selected_url = min(self.running_queue.items(), key=lambda x: x[1])[0]
             except Exception:
                 selected_url = self.worker_urls[0]
         else:
@@ -228,16 +230,14 @@ class RouteSelector:
         # 根据策略创建 router
         if isinstance(policy_config, RandomConfig):
             return RandomRouter(
-                worker_urls=deepcopy(worker_urls),
-                timeout_secs=timeout_secs,
-                interval_secs=interval_secs
+                worker_urls=deepcopy(worker_urls), timeout_secs=timeout_secs, interval_secs=interval_secs
             )
         elif isinstance(policy_config, RoundRobinConfig):
             return RoundRobinRouter(
                 worker_urls=deepcopy(worker_urls),
                 current_index=0,
                 timeout_secs=timeout_secs,
-                interval_secs=interval_secs
+                interval_secs=interval_secs,
             )
         elif isinstance(policy_config, CacheAwareConfig):
             worker_urls = deepcopy(worker_urls)
@@ -267,10 +267,7 @@ class RouteSelector:
                 logger.debug("Eviction thread stopped gracefully.")
 
             # 创建后台线程
-            eviction_thread = threading.Thread(
-                target=_eviction_loop,
-                daemon=True
-            )
+            eviction_thread = threading.Thread(target=_eviction_loop, daemon=True)
             eviction_thread.start()
 
             # 插入初始节点
@@ -287,7 +284,7 @@ class RouteSelector:
                 balance_rel_threshold=balance_rel_threshold,
                 timeout_secs=timeout_secs,
                 interval_secs=interval_secs,
-                _eviction_thread=eviction_thread
+                _eviction_thread=eviction_thread,
             )
 
             router._stop_eviction = stop_event
@@ -314,9 +311,7 @@ class RouteSelector:
 
         while True:
             if time.time() - start_time > router.timeout_secs:
-                error_msg = (
-                    f"Timeout {router.timeout_secs}s waiting for worker {worker_url} to become healthy."
-                )
+                error_msg = f"Timeout {router.timeout_secs}s waiting for worker {worker_url} to become healthy."
                 logger.error(error_msg)
                 return False, error_msg
 

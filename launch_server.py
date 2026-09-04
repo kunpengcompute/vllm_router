@@ -22,25 +22,29 @@ import time
 from asyncio import Semaphore
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
-from typing import List
-from typing import Tuple, Dict
+from typing import Dict, List, Tuple
 
 import aiohttp
-from fastapi import FastAPI
-from fastapi import HTTPException
-from fastapi.responses import Response, JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.requests import Request
 
-from router.protocol import CompletionRequest, WorkUrls, RouterArgs
-from src.router import RandomConfig, RoundRobinConfig, CacheAwareConfig
-from src.router import RouteSelector, PolicyConfig, CacheAwareRouter, RoundRobinRouter, RandomRouter
+from router.protocol import CompletionRequest, RouterArgs, WorkUrls
+from src.router import (
+    CacheAwareConfig,
+    CacheAwareRouter,
+    PolicyConfig,
+    RandomConfig,
+    RandomRouter,
+    RoundRobinConfig,
+    RoundRobinRouter,
+    RouteSelector,
+)
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
 
-class CustomHelpFormatter(
-    argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
-):
+class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
     """Custom formatter that preserves both description formatting and shows defaults"""
 
     pass
@@ -86,78 +90,78 @@ Examples:
 
     # Routing policy configuration
     parser.add_argument(
-        f"--policy",
+        "--policy",
         type=str,
         default="cache_aware",
         choices=["random", "round_robin", "cache_aware"],
         help="Load balancing policy to use",
     )
     parser.add_argument(
-        f"--worker-startup-timeout-secs",
-        f"--worker_startup_timeout_secs",
+        "--worker-startup-timeout-secs",
+        "--worker_startup_timeout_secs",
         dest="worker_startup_timeout_secs",
         type=int,
         default=30,
         help="Timeout in seconds for worker startup",
     )
     parser.add_argument(
-        f"--worker-startup-check-interval",
-        f"--worker_startup_check_interval",
+        "--worker-startup-check-interval",
+        "--worker_startup_check_interval",
         dest="worker_startup_check_interval",
         type=int,
         default=1,
         help="Interval in seconds between checks for worker startup",
     )
     parser.add_argument(
-        f"--cache-threshold",
-        f"--cache_threshold",
+        "--cache-threshold",
+        "--cache_threshold",
         dest="cache_threshold",
         type=float,
         default=0.5,
         help="Cache threshold (0.0-1.0) for cache-aware routing",
     )
     parser.add_argument(
-        f"--balance-abs-threshold",
-        f"--balance_abs_threshold",
+        "--balance-abs-threshold",
+        "--balance_abs_threshold",
         dest="balance_abs_threshold",
         type=int,
         default=32,
         help="Load balancing is triggered when (max_load - min_load) > abs_threshold AND max_load > min_load * rel_threshold. Otherwise, use cache aware",
     )
     parser.add_argument(
-        f"--balance-rel-threshold",
-        f"--balance_rel_threshold",
+        "--balance-rel-threshold",
+        "--balance_rel_threshold",
         dest="balance_rel_threshold",
         type=float,
         default=1.0001,
         help="Load balancing is triggered when (max_load - min_load) > abs_threshold AND max_load > min_load * rel_threshold. Otherwise, use cache aware",
     )
     parser.add_argument(
-        f"--eviction-interval-secs",
-        f"--eviction_interval_secs",
+        "--eviction-interval-secs",
+        "--eviction_interval_secs",
         dest="eviction_interval_secs",
         type=int,
         default=60,
         help="Interval in seconds between cache eviction operations",
     )
     parser.add_argument(
-        f"--max-tree-size",
-        f"--max_tree_size",
+        "--max-tree-size",
+        "--max_tree_size",
         dest="max_tree_size",
         type=int,
-        default=2 ** 24,
+        default=2**24,
         help="Maximum size of the approximation tree for cache-aware routing",
     )
     parser.add_argument(
-        f"--log-dir",
-        f"--log_dir",
+        "--log-dir",
+        "--log_dir",
         dest="log_dir",
         type=str,
         default="",
         help="Directory to store log files",
     )
     parser.add_argument(
-        f"--verbose",
+        "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -189,12 +193,7 @@ def setup_logger(log_file: str, verbose: bool = False) -> logging.Logger:
 
         MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=MAX_BYTES,
-            backupCount=0,
-            encoding='utf-8'
-        )
+        file_handler = RotatingFileHandler(log_file, maxBytes=MAX_BYTES, backupCount=0, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
@@ -238,25 +237,19 @@ class BackendService:
         except aiohttp.ClientConnectorError as e:
             # 连接类错误（DNS、拒绝连接、网络不通等）
             logger.warning(
-                "Health check connection failed",
-                extra={"base_url": self.base_url, "error": str(e)},
-                exc_info=True
+                "Health check connection failed", extra={"base_url": self.base_url, "error": str(e)}, exc_info=True
             )
             return False
 
-        except aiohttp.ServerTimeoutError as e:
+        except aiohttp.ServerTimeoutError:
             # 超时（读/写/连接超时）
-            logger.warning(
-                "Health check timed out",
-                extra={"base_url": self.base_url}
-            )
+            logger.warning("Health check timed out", extra={"base_url": self.base_url})
             return False
 
         except (aiohttp.InvalidURL, ValueError) as e:
             # URL 无效（配置错误）
             logger.critical(
-                "Health check failed due to invalid URL",
-                extra={"base_url": self.base_url, "error": str(e)}
+                "Health check failed due to invalid URL", extra={"base_url": self.base_url, "error": str(e)}
             )
             return False
 
@@ -266,15 +259,18 @@ class BackendService:
 
 
 class Router:
-    def __init__(self, ):
+    def __init__(
+        self,
+    ):
         self.router = None
         self.router_selector = RouteSelector()
         self.backends = {}
-        self.session_timeout = aiohttp.ClientTimeout(total=None,  # 长连接支持
-                                                     sock_connect=10,  # 连接建立超时
-                                                     sock_read=None,  # 单次读取超时
-                                                     connect=10
-                                                     )
+        self.session_timeout = aiohttp.ClientTimeout(
+            total=None,  # 长连接支持
+            sock_connect=10,  # 连接建立超时
+            sock_read=None,  # 单次读取超时
+            connect=10,
+        )
         self.session = aiohttp.ClientSession(timeout=self.session_timeout)
         self.lock = asyncio.Lock()
         self._monitor_task: asyncio.Task | None = None
@@ -302,9 +298,9 @@ class Router:
     @staticmethod
     async def wait_for_healthy_worker(worker_url: str, timeout_secs: int, interval_secs: int) -> bool:
         """
-            Wait worker responds to health check
-            Raises:
-                RuntimeError: If worker doesn't become healthy within timeout
+        Wait worker responds to health check
+        Raises:
+            RuntimeError: If worker doesn't become healthy within timeout
         """
         start_time = time.time()
         client = aiohttp.ClientSession()
@@ -404,10 +400,7 @@ class Router:
         async def check_with_semaphore(url):
             async with semaphore:
                 try:
-                    return await asyncio.wait_for(
-                        self.wait_for_healthy_worker(url, 5, 1),
-                        timeout=10
-                    )
+                    return await asyncio.wait_for(self.wait_for_healthy_worker(url, 5, 1), timeout=10)
                 except (asyncio.TimeoutError, Exception):
                     return False
 
@@ -488,9 +481,7 @@ class Router:
             if api != "/health":
                 headers = {"Content-Type": "application/json"}
                 async with self.session.post(
-                        target_url,
-                        headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=10)
+                    target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     # 读取响应内容
                     body = await response.read()
@@ -498,9 +489,7 @@ class Router:
             else:
                 headers = {}
                 async with self.session.get(
-                        target_url,
-                        headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=10)
+                    target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     body = await response.read()
                     return response.status, body
@@ -531,6 +520,7 @@ class Router:
                     self.router.running_queue[worker_url] -= 1
                 return Response(content=full_body, status_code=status, headers=response.headers)
         elif isinstance(self.router, CacheAwareRouter):
+
             async def stream_gen():
                 # 流式响应需要在内部定义会话
                 async with aiohttp.ClientSession(timeout=self.session_timeout) as session:
@@ -542,21 +532,16 @@ class Router:
                                 self.router.running_queue[worker_url] -= 1
                                 logger.debug("Streaming is done!!")
 
-            return StreamingResponse(
-                stream_gen(),
-                media_type="text/event-stream"
-            )
+            return StreamingResponse(stream_gen(), media_type="text/event-stream")
         else:
+
             async def stream_gen():
                 async with aiohttp.ClientSession(timeout=self.session_timeout) as session:
                     async with session.post(url, json=body) as response:
                         async for chunk in response.content.iter_chunked(64 * 1024):
                             yield chunk
 
-            return StreamingResponse(
-                stream_gen(),
-                media_type="text/event-stream"
-            )
+            return StreamingResponse(stream_gen(), media_type="text/event-stream")
 
     @staticmethod
     def get_text_from_request(body, api: str) -> str:
@@ -608,8 +593,9 @@ class Router:
                     # if the worker is healthy, it means the request is bad, so return the error response
                     health_response = await self.send_request(worker_url, "/health")
                     if health_response[0] == 200:
-                        return Response(content=response.body, status_code=response.status_code,
-                                        headers=response.headers)
+                        return Response(
+                            content=response.body, status_code=response.status_code, headers=response.headers
+                        )
 
                 logger.warning(
                     f"Generate request to {worker_url} failed (attempt {request_retries + 1}/{max_request_retries})"
@@ -626,10 +612,7 @@ class Router:
 
     async def forward_request(self, body, api):
         if api not in ("v1/completions",):
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Incorrect API."}
-            )
+            return JSONResponse(status_code=500, content={"detail": "Incorrect API."})
         return await self.route_generate_request(body, api)
 
     @staticmethod
@@ -707,10 +690,7 @@ def create_app(worker_urls, policy_config) -> FastAPI:
 
     @app.exception_handler(NoAvailableWorkerError)
     async def worker_exception_handler(request: Request, exc: NoAvailableWorkerError):
-        return JSONResponse(
-            status_code=503,
-            content={"detail": str(exc)}
-        )
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     @app.exception_handler(404)
     async def sink_handler(request: Request, exc: HTTPException):
@@ -719,13 +699,8 @@ def create_app(worker_urls, policy_config) -> FastAPI:
             content={
                 "code": 404,
                 "message": f"invalid route: {request.url.path}",
-            }
+            },
         )
-
-    @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-    async def sink_handler(path_name: str, request: Request):
-        logging.warning(f"Unmatched route: {path_name}")
-        return Response(status_code=404, content="Not Found")
 
     return app
 
@@ -749,14 +724,15 @@ if __name__ == "__main__":
             interval_secs=router_configuration.worker_startup_check_interval,
         )
     else:
-        policy_config = CacheAwareConfig(cache_threshold=router_configuration.cache_threshold,
-                                         balance_abs_threshold=router_configuration.balance_abs_threshold,
-                                         balance_rel_threshold=router_configuration.balance_rel_threshold,
-                                         eviction_interval_secs=router_configuration.eviction_interval_secs,
-                                         max_tree_size=router_configuration.max_tree_size,
-                                         timeout_secs=router_configuration.worker_startup_timeout_secs,
-                                         interval_secs=router_configuration.worker_startup_check_interval,
-                                         )
+        policy_config = CacheAwareConfig(
+            cache_threshold=router_configuration.cache_threshold,
+            balance_abs_threshold=router_configuration.balance_abs_threshold,
+            balance_rel_threshold=router_configuration.balance_rel_threshold,
+            eviction_interval_secs=router_configuration.eviction_interval_secs,
+            max_tree_size=router_configuration.max_tree_size,
+            timeout_secs=router_configuration.worker_startup_timeout_secs,
+            interval_secs=router_configuration.worker_startup_check_interval,
+        )
     app = create_app(router_configuration.worker_urls, policy_config)
     logging.info(f"Initializing router on {router_configuration.host}:{router_configuration.port}")
     logging.info(f"Initializing workers on {router_configuration.worker_urls}")

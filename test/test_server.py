@@ -1,13 +1,10 @@
-import unittest
-from unittest.mock import patch, MagicMock
-import argparse
 import sys
-from typing import Dict
+import unittest
 
 from pydantic import ValidationError
 
 # 测试目标代码中的函数和类
-from launch_server import parse_router_args, Router
+from launch_server import parse_router_args
 from router.protocol import RouterArgs
 
 
@@ -34,26 +31,39 @@ class TestParseRouterArgs(unittest.TestCase):
         self.assertEqual(args.balance_abs_threshold, 32)
         self.assertEqual(args.balance_rel_threshold, 1.0001)
         self.assertEqual(args.eviction_interval_secs, 60)
-        self.assertEqual(args.max_tree_size, 2 ** 24)
+        self.assertEqual(args.max_tree_size, 2**24)
         self.assertEqual(args.log_dir, "")
         self.assertFalse(args.verbose)
 
     def test_custom_values(self):
         """测试自定义参数值"""
         test_args = [
-            "--host", "127.0.0.1",
-            "--port", "8009",
-            "--worker-urls", "http://worker1:8003", "http://worker2:8004",
-            "--policy", "round_robin",
-            "--worker-startup-timeout-secs", "60",
-            "--worker-startup-check-interval", "5",
-            "--cache-threshold", "0.7",
-            "--balance-abs-threshold", "64",
-            "--balance-rel-threshold", "1.5",
-            "--eviction-interval-secs", "120",
-            "--max-tree-size", "1000000",
-            "--log-dir", "/var/log",
-            "--verbose"
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8009",
+            "--worker-urls",
+            "http://worker1:8003",
+            "http://worker2:8004",
+            "--policy",
+            "round_robin",
+            "--worker-startup-timeout-secs",
+            "60",
+            "--worker-startup-check-interval",
+            "5",
+            "--cache-threshold",
+            "0.7",
+            "--balance-abs-threshold",
+            "64",
+            "--balance-rel-threshold",
+            "1.5",
+            "--eviction-interval-secs",
+            "120",
+            "--max-tree-size",
+            "1000000",
+            "--log-dir",
+            "/var/log",
+            "--verbose",
         ]
         sys.argv.extend(test_args)
 
@@ -80,11 +90,6 @@ class TestParseRouterArgs(unittest.TestCase):
 
     def test_invalid_cache_threshold(self):
         """测试无效的cache-threshold值"""
-        # sys.argv.extend(["--cache-threshold", "1.2"])
-        # router_args = parse_router_args()
-        # with self.assertRaises(ValidationError) as cm:
-        #     router_configuration = RouterArgs(**vars(router_args))
-
         test_cases = [
             ("1.5", "must be between 0.0 and 1.0"),  # 大于1.0
             ("-0.1", "must be between 0.0 and 1.0"),  # 小于0.0
@@ -94,10 +99,8 @@ class TestParseRouterArgs(unittest.TestCase):
             with self.subTest(value=value, expected_error=expected_error):
                 sys.argv = [sys.argv[0]]  # 重置参数
                 sys.argv.extend(["--cache-threshold", value])
-
-                with self.assertRaises(ValidationError) as cm:
-                    router_args = parse_router_args()
-                    router_configuration = RouterArgs(**vars(router_args))
+                with self.assertRaises(ValidationError):
+                    RouterArgs(**vars(parse_router_args()))
 
     def test_missing_required_args(self):
         """测试缺少必需参数的情况"""

@@ -2,12 +2,11 @@
 import threading
 import time
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from datetime import datetime
-from heapq import heappush, heappop
+from heapq import heappop, heappush
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
-
-from dataclasses import dataclass
 
 
 def shared_prefix_count(a: str, b: str) -> int:
@@ -83,7 +82,7 @@ class Tree:
             with curr.lock:
                 if first_char not in curr.children:
                     # 创建新节点
-                    curr_text = text[curr_idx: text_count]
+                    curr_text = text[curr_idx:text_count]
 
                     curr_text_count = len(curr_text)
                     new_node = Node()
@@ -112,8 +111,8 @@ class Tree:
                            becomes
                            [curr] -> [new_node] -> [contracted_matched_node]
                         """
-                        matched_text = matched_node_text[: shared_count]
-                        contracted_text = matched_node_text[shared_count: matched_node_text_count]
+                        matched_text = matched_node_text[:shared_count]
+                        contracted_text = matched_node_text[shared_count:matched_node_text_count]
                         matched_text_count = len(matched_text)
                         new_node = Node()
                         new_node.text = matched_text
@@ -190,20 +189,18 @@ class Tree:
                     current_node.tenant_last_access_time[tenant] = timestamp_us
                 current_node = current_node.parent
 
-        ret_text = text[0: curr_idx]
+        ret_text = text[0:curr_idx]
         return ret_text, tenant
 
     def prefix_match_tenant(self, text: str, tenant: str):
         curr_idx = 0
-
-        matched_flag = 0
 
         prev = self.root
         text_count = len(text)
 
         while curr_idx < text_count:
             first_char = text[curr_idx]
-            curr_text = text[curr_idx: text_count]
+            curr_text = text[curr_idx:text_count]
 
             curr = prev
 
@@ -242,7 +239,7 @@ class Tree:
                     current_node.tenant_last_access_time[tenant] = timestamp_us
                 current_node = current_node.parent
 
-        return text[0: curr_idx]
+        return text[0:curr_idx]
 
     @staticmethod
     def leaf_of(node):
