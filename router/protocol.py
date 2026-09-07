@@ -289,7 +289,7 @@ class RouterArgs(BaseModel):
     balance_rel_threshold: float = Field(1.0001, gt=1, lt=3)
     eviction_interval_secs: int = Field(60, ge=1, le=100)
     max_tree_size: int = Field(2**24, ge=2**15, le=2**26)
-    log_dir: str = (Field(""),)
+    log_dir: str = Field("")
     verbose: bool = Field(False)
 
     @field_validator("host")
