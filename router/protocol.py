@@ -8,11 +8,10 @@ import os
 import re
 from argparse import Namespace
 from pathlib import Path
-
-from typing import Optional, Union, Annotated, ClassVar, Literal, Any, List
+from typing import Annotated, Any, ClassVar, List, Literal, Optional, Union
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, model_validator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import Url
 
 from utils.logger import logger
@@ -48,16 +47,15 @@ class OpenAIBaseModel(BaseModel):
             field_names = set()
             for field_name, field in cls.model_fields.items():
                 field_names.add(field_name)
-                if alias := getattr(field, 'alias', None):
+                if alias := getattr(field, "alias", None):
                     field_names.add(alias)
             cls.field_names = field_names
 
         # Compare against both field names and aliases
         if any(k not in field_names for k in data):
             logger.warning(
-                "The following fields were present in the request "
-                "but ignored: %s",
-                data.keys() - field_names)
+                "The following fields were present in the request but ignored: %s", data.keys() - field_names
+            )
         return result
 
 
@@ -71,7 +69,7 @@ class JsonSchemaResponseFormat(OpenAIBaseModel):
     description: Optional[str] = None
     # schema is the field in openai but that causes conflicts with pydantic so
     # instead use json_schema with an alias
-    json_schema: Optional[dict[str, Any]] = Field(default=None, alias='schema')
+    json_schema: Optional[dict[str, Any]] = Field(default=None, alias="schema")
     strict: Optional[bool] = None
 
 
@@ -123,16 +121,15 @@ class CompletionRequest(OpenAIBaseModel):
     # doc: begin-completion-extra-params
     add_special_tokens: bool = Field(
         default=True,
-        description=(
-            "If true (the default), special tokens (e.g. BOS) will be added to "
-            "the prompt."),
+        description=("If true (the default), special tokens (e.g. BOS) will be added to the prompt."),
     )
     response_format: Optional[ResponseFormat] = Field(
         default=None,
         description=(
             "Similar to chat completion, this parameter specifies the format of "
             "output. Only {'type': 'json_object'}, {'type': 'json_schema'} or "
-            "{'type': 'text' } is supported."),
+            "{'type': 'text' } is supported."
+        ),
     )
     guided_json: Optional[Union[str, dict, BaseModel]] = Field(
         default=None,
@@ -140,56 +137,56 @@ class CompletionRequest(OpenAIBaseModel):
     )
     guided_regex: Optional[str] = Field(
         default=None,
-        description=(
-            "If specified, the output will follow the regex pattern."),
+        description=("If specified, the output will follow the regex pattern."),
     )
     guided_choice: Optional[list[str]] = Field(
         default=None,
-        description=(
-            "If specified, the output will be exactly one of the choices."),
+        description=("If specified, the output will be exactly one of the choices."),
     )
     guided_grammar: Optional[str] = Field(
         default=None,
-        description=(
-        "If specified, the output will follow the context free grammar."),
+        description=("If specified, the output will follow the context free grammar."),
     )
     guided_decoding_backend: Optional[str] = Field(
         default=None,
         description=(
             "If specified, will override the default guided decoding backend "
             "of the server for this specific request. If set, must be one of "
-            "'outlines' / 'lm-format-enforcer'")
+            "'outlines' / 'lm-format-enforcer'"
+        ),
     )
     guided_whitespace_pattern: Optional[str] = Field(
         default=None,
-        description=(
-            "If specified, will override the default whitespace pattern "
-            "for guided json decoding.")
+        description=("If specified, will override the default whitespace pattern for guided json decoding."),
     )
     priority: int = Field(
         default=0,
         description=(
             "The priority of the request (lower means earlier handling; "
             "default: 0). Any priority other than 0 will raise an error "
-            "if the served model does not use priority scheduling.")
+            "if the served model does not use priority scheduling."
+        ),
     )
     logits_processors: Optional[LogitsProcessors] = Field(
-    default=None,
-    description=(
-        "A list of either qualified names of logits processors, or "
-        "constructor objects, to apply when sampling. A constructor is "
-        "a JSON object with a required 'qualname' field specifying the "
-        "qualified name of the processor class/factory, and optional "
-        "'args' and 'kwargs' fields containing positional and keyword "
-        "arguments. For example: {'qualname': "
-        "'my_module.MyLogitsProcessor', 'args': [1, 2], 'kwargs': "
-        "{'param': 'value'}}."))
+        default=None,
+        description=(
+            "A list of either qualified names of logits processors, or "
+            "constructor objects, to apply when sampling. A constructor is "
+            "a JSON object with a required 'qualname' field specifying the "
+            "qualified name of the processor class/factory, and optional "
+            "'args' and 'kwargs' fields containing positional and keyword "
+            "arguments. For example: {'qualname': "
+            "'my_module.MyLogitsProcessor', 'args': [1, 2], 'kwargs': "
+            "{'param': 'value'}}."
+        ),
+    )
     return_tokens_as_token_ids: Optional[bool] = Field(
         default=None,
         description=(
             "If specified with 'logprobs', tokens are represented "
             " as strings of the form 'token_id:{token_id}' so that tokens "
-            "that are not JSON-encodable can be identified.")
+            "that are not JSON-encodable can be identified."
+        ),
     )
 
     # doc: end-completion-extra-params
@@ -206,15 +203,17 @@ class CompletionRequest(OpenAIBaseModel):
     @model_validator(mode="before")
     @classmethod
     def check_guided_decoding_count(cls, data):
-        guide_count = sum([
-            "guided_json" in data and data["guided_json"] is not None,
-            "guided_regex" in data and data["guided_regex"] is not None,
-            "guided_choice" in data and data["guided_choice"] is not None
-        ])
+        guide_count = sum(
+            [
+                "guided_json" in data and data["guided_json"] is not None,
+                "guided_regex" in data and data["guided_regex"] is not None,
+                "guided_choice" in data and data["guided_choice"] is not None,
+            ]
+        )
         if guide_count > 1:
             raise ValueError(
-                "You can only use one kind of guided decoding "
-                "('guided_json', 'guided_regex' or 'guided_choice').")
+                "You can only use one kind of guided decoding ('guided_json', 'guided_regex' or 'guided_choice')."
+            )
         return data
 
         @model_validator(mode="before")
@@ -222,8 +221,7 @@ class CompletionRequest(OpenAIBaseModel):
         def check_logprobs(cls, data):
             if (prompt_logprobs := data.get("prompt_logprobs")) is not None:
                 if data.get("stream") and prompt_logprobs > 0:
-                    raise ValueError(
-                        "`prompt_logprobs` are not available when `stream=True`.")
+                    raise ValueError("`prompt_logprobs` are not available when `stream=True`.")
 
                 if prompt_logprobs < 0:
                     raise ValueError("`prompt_logprobs` must be a positive value.")
@@ -237,8 +235,7 @@ class CompletionRequest(OpenAIBaseModel):
         @classmethod
         def validate_stream_options(cls, data):
             if data.get("stream_options") and not data.get("stream"):
-                raise ValueError(
-                    "Stream options can only be defined when `stream=True`.")
+                raise ValueError("Stream options can only be defined when `stream=True`.")
 
             return data
 
@@ -271,10 +268,10 @@ class WorkUrls(BaseModel):
         try:
             parsed = urlparse(url)
             return (
-                    parsed.scheme in {'http', 'https'}
-                    and bool(parsed.netloc)
-                    and not parsed.username
-                    and not parsed.password
+                parsed.scheme in {"http", "https"}
+                and bool(parsed.netloc)
+                and not parsed.username
+                and not parsed.password
             )
         except Exception:
             return False
@@ -291,37 +288,37 @@ class RouterArgs(BaseModel):
     balance_abs_threshold: int = Field(32, ge=1, le=100)
     balance_rel_threshold: float = Field(1.0001, gt=1, lt=3)
     eviction_interval_secs: int = Field(60, ge=1, le=100)
-    max_tree_size: int = Field(2 ** 24, ge=2 ** 15, le=2 ** 26)
-    log_dir: str = Field(""),
+    max_tree_size: int = Field(2**24, ge=2**15, le=2**26)
+    log_dir: str = Field("")
     verbose: bool = Field(False)
 
-    @field_validator('host')
+    @field_validator("host")
     @classmethod
     def validate_host(cls, v: str) -> str:
-        ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        ipv4_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
 
         if not (re.match(ipv4_pattern, v)):
             raise ValueError(f"host '{v}' is not a valid IP address")
         if re.match(ipv4_pattern, v):
-            if not all(0 <= int(part) <= 255 for part in v.split('.')):
+            if not all(0 <= int(part) <= 255 for part in v.split(".")):
                 raise ValueError(f"host '{v}' contains invalid IPv4 octets")
         return v
 
-    @field_validator('port')
+    @field_validator("port")
     @classmethod
     def validate_port(cls, v: int) -> int:
         if not (7000 <= v <= 9000):
             raise ValueError(f"port {v} is not a valid port number (7000~9000)")
         return v
 
-    @field_validator('worker_urls')
+    @field_validator("worker_urls")
     @classmethod
     def validate_worker_urls(cls, v: Union[str, List[str]]) -> List[str]:
         urls = [v] if isinstance(v, str) else v
         for url in urls:
             if not isinstance(url, str):
                 raise ValueError("Each URL must be a string")
-            if not url.startswith(('http://', 'https://')):
+            if not url.startswith(("http://", "https://")):
                 raise ValueError(f"URL must start with http:// or https://, got '{url}'")
             try:
                 Url(url)
@@ -329,7 +326,7 @@ class RouterArgs(BaseModel):
                 raise ValueError(f"Invalid URL format: {url}")
         return urls  # 统一转为 List[str]
 
-    @field_validator('log_dir')
+    @field_validator("log_dir")
     @classmethod
     def validate_log_dir(cls, v: str) -> str:
         if v:
@@ -352,7 +349,7 @@ class RouterArgs(BaseModel):
         else:
             return ""
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def check_host_port_not_in_worker_urls(self) -> "RouterArgs":
         host = self.host
         port = self.port
@@ -364,53 +361,48 @@ class RouterArgs(BaseModel):
         # 检查每个 work_url 是否包含 host:port
         for url in worker_urls:
             if host_port_combo in url:
-                raise ValueError(
-                    f" '{host_port_combo}' is not allowed to appear in work_urls. "
-                    f"Found in URL: {url}"
-                )
+                raise ValueError(f" '{host_port_combo}' is not allowed to appear in work_urls. Found in URL: {url}")
 
         worker_startup_timeout_secs = self.worker_startup_timeout_secs
         worker_startup_check_interval = self.worker_startup_check_interval
         if worker_startup_check_interval > worker_startup_timeout_secs:
-            raise ValueError(
-                f" '{worker_startup_check_interval}' be less than {worker_startup_timeout_secs}. "
-            )
+            raise ValueError(f" '{worker_startup_check_interval}' be less than {worker_startup_timeout_secs}. ")
 
         return self
 
 
-    def get_logits_processors(processors: Optional[LogitsProcessors], pattern: Optional[str]) -> Optional[list[Any]]:
-        if processors and pattern:
-            logits_processors = []
-            for processor in processors:
-                qualname = processor if isinstance(processor, str) else processor.qualname
-                if not re.match(pattern, qualname):
-                    raise ValueError(
-                        f"Logits processor '{qualname}' is not allowed by this "
-                        "server. See --logits-processor-pattern engine argument "
-                        "for more information.")
-                try:
-                    logits_processor = resolve_obj_by_qualname(qualname)
-                except Exception as e:
-                    raise ValueError(
-                        f"Logits processor '{qualname}' could not be resolved: {e}"
-                    ) from e
-                if isinstance(processor, LogitsProcessorConstructor):
-                    logits_processor = logits_processor(*processor.args or [], **processor.kwargs or {})
-                logits_processors.append(logits_processor)
-            return logits_processors
-        elif processors:
-            raise ValueError(
-                "The `logits_processors` argument is not supported by this "
-                "server. See --logits-processor-pattern engine argugment "
-                "for more information.")
-        return None
+def get_logits_processors(processors: Optional[LogitsProcessors], pattern: Optional[str]) -> Optional[list[Any]]:
+    if processors and pattern:
+        logits_processors = []
+        for processor in processors:
+            qualname = processor if isinstance(processor, str) else processor.qualname
+            if not re.match(pattern, qualname):
+                raise ValueError(
+                    f"Logits processor '{qualname}' is not allowed by this "
+                    "server. See --logits-processor-pattern engine argument "
+                    "for more information."
+                )
+            try:
+                logits_processor = resolve_obj_by_qualname(qualname)
+            except Exception as e:
+                raise ValueError(f"Logits processor '{qualname}' could not be resolved: {e}") from e
+            if isinstance(processor, LogitsProcessorConstructor):
+                logits_processor = logits_processor(*processor.args or [], **processor.kwargs or {})
+            logits_processors.append(logits_processor)
+        return logits_processors
+    elif processors:
+        raise ValueError(
+            "The `logits_processors` argument is not supported by this "
+            "server. See --logits-processor-pattern engine argugment "
+            "for more information."
+        )
+    return None
 
 
-    def resolve_obj_by_qualname(qualname: str) -> Any:
-        """
-        Resolve an object by its fully qualified name.
-        """
-        module_name, obj_name = qualname.rsplit(".", 1)
-        module = importlib.import_module(module_name)
-        return getattr(module, obj_name)
+def resolve_obj_by_qualname(qualname: str) -> Any:
+    """
+    Resolve an object by its fully qualified name.
+    """
+    module_name, obj_name = qualname.rsplit(".", 1)
+    module = importlib.import_module(module_name)
+    return getattr(module, obj_name)

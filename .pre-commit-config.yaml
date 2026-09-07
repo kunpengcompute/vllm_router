@@ -16,16 +16,16 @@ repos:
       - id: check-yaml
         args: ["--allow-multiple-documents"]  # 兼容K8S
         exclude: mkdocs\.yml$  # !!python/name: 标签不兼容 safe_load
-      - id: check-added-large-files  # 拦截>50MB文件（默认阈值）
+      - id: check-toml               # 校验 TOML 文件语法（pyproject.toml）
+      - id: check-added-large-files  # 拦截超大文件提交（默认500KB）
       - id: check-merge-conflict     # 检测未解决的合并冲突（<<<<<<< HEAD）
       - id: detect-private-key       # 检测硬编码的私钥/密钥
       - id: check-json
 
-#--------------- C++ 核心检查 ---------------------------------------------
-  # clang-format：C/C++ 代码格式化
-  - repo: https://gitcode.com/pre-commit-clang/mirrors-clang-format
-    rev: v22.1.5
+# Python 代码格式化和静态检查
+  - repo: https://gitcode.com/gh_mirrors/ru/ruff-pre-commit
+    rev: v0.15.8
     hooks:
-      - id: clang-format
-        types_or: [c, c++]
-        exclude: ^build/|(^|/)third_party/|^test/
+      - id: ruff-format
+      - id: ruff-check
+        args: ["--fix"]

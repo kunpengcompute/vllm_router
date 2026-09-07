@@ -14,7 +14,7 @@ class TestTree(unittest.TestCase):
 
     @staticmethod
     def random_string(length):
-        return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+        return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
     def test_get_smallest_tenant(self):
         self.setUp()
@@ -29,8 +29,9 @@ class TestTree(unittest.TestCase):
         time.sleep(0.1)
 
         # Test - tenant2 should be smallest with 3 chars vs 6 chars
-        self.assertEqual(self.tree.get_smallest_tenant(), "tenant2",
-                         "Expected tenant2 to be smallest with 3 characters.")
+        self.assertEqual(
+            self.tree.get_smallest_tenant(), "tenant2", "Expected tenant2 to be smallest with 3 characters."
+        )
 
         # Insert overlapping data for tenant3 and tenant4 to test equal counts
         # tenant3: "do" = 2 chars
@@ -41,15 +42,18 @@ class TestTree(unittest.TestCase):
 
         # should return either tenant3 or tenant4 (both have 2 chars)
         smallest = self.tree.get_smallest_tenant()
-        self.assertTrue(smallest == "tenant3" or smallest == "tenant4",
-                        f"Expected either tenant3 or tenant4 (both have 2 characters), got {smallest}")
+        self.assertTrue(
+            smallest == "tenant3" or smallest == "tenant4",
+            f"Expected either tenant3 or tenant4 (both have 2 characters), got {smallest}",
+        )
 
         # Add more text to tenant4 to make it larger
         self.tree.insert("hello", "tenant4")  # Now tenant4 has "hi" + "hello" = 6 chars
 
         # Now tenant3 should be smallest (2 chars vs 6 chars for tenant4)
-        self.assertEqual(self.tree.get_smallest_tenant(), "tenant3",
-                         "Expected tenant3 to be smallest with 2 characters.")
+        self.assertEqual(
+            self.tree.get_smallest_tenant(), "tenant3", "Expected tenant3 to be smallest with 2 characters."
+        )
         self.tree.pretty_print()
         # Test eviction
         self.tree.evict_tenant_by_size(3)  # This should evict tenants with more than 3 chars
@@ -194,8 +198,9 @@ class TestTree(unittest.TestCase):
         def match_task(expected_text: str, expected_tenant: str):
             matched_text, matched_tenant = self.tree.prefix_match(expected_text)
             self.assertTrue(matched_text == expected_text, f"Expected matched text {expected_text}, got {matched_text}")
-            self.assertTrue(matched_tenant == expected_tenant,
-                            f"Expected tenant {expected_tenant}, got {matched_tenant}")
+            self.assertTrue(
+                matched_tenant == expected_tenant, f"Expected tenant {expected_tenant}, got {matched_tenant}"
+            )
 
         for i in range(3):
             thread = threading.Thread(target=match_task, args=(texts[i], "tenant0"))
@@ -240,8 +245,9 @@ class TestTree(unittest.TestCase):
         def match_task(expected_text: str, expected_tenant: str):
             matched_text, matched_tenant = self.tree.prefix_match(expected_text)
             self.assertTrue(matched_text == expected_text, f"Expected matched text {expected_text}, got {matched_text}")
-            self.assertTrue(matched_tenant == expected_tenant,
-                            f"Expected tenant {expected_tenant}, got {matched_tenant}")
+            self.assertTrue(
+                matched_tenant == expected_tenant, f"Expected tenant {expected_tenant}, got {matched_tenant}"
+            )
 
         for i in range(len(prefix)):
             thread = threading.Thread(target=match_task, args=(prefix[i], f"tenant{i}"))
@@ -347,8 +353,9 @@ class TestTree(unittest.TestCase):
         sizes_after = self.tree.get_used_size_per_tenant()
         # 确保每个tenant的带下都在max_size以内
         for tenant, size in sizes_after.items():
-            self.assertTrue(size <= max_size,
-                            f"Tenant {tenant} exceeds size limit. Current size: {size}, Limit: {max_size}")
+            self.assertTrue(
+                size <= max_size, f"Tenant {tenant} exceeds size limit. Current size: {size}, Limit: {max_size}"
+            )
 
     def test_concurrent_operations_with_eviction(self):
         self.setUp()
@@ -455,10 +462,12 @@ class TestTree(unittest.TestCase):
         self.assertEqual(self.tree.prefix_match_tenant("hello", "tenant1"), "hello")  # Full match for tenant1
         self.assertEqual(self.tree.prefix_match_tenant("help", "tenant1"), "help")  # Exclusive to tenant1
         self.assertEqual(self.tree.prefix_match_tenant("hel", "tenant1"), "hel")  # Shared prefix
-        self.assertEqual(self.tree.prefix_match_tenant("hello world", "tenant1"),
-                         "hello")  # Should stop at tenant1's boundary
-        self.assertEqual(self.tree.prefix_match_tenant("helicopter", "tenant1"),
-                         "hel")  # Should stop at tenant1's boundary
+        self.assertEqual(
+            self.tree.prefix_match_tenant("hello world", "tenant1"), "hello"
+        )  # Should stop at tenant1's boundary
+        self.assertEqual(
+            self.tree.prefix_match_tenant("helicopter", "tenant1"), "hel"
+        )  # Should stop at tenant1's boundary
 
         # 测试tenant2的数据
         self.assertEqual(self.tree.prefix_match_tenant("hello", "tenant2"), "hello")  # Full match for tenant2

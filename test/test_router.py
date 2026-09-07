@@ -1,25 +1,24 @@
 import unittest
-from unittest.mock import Mock, patch, MagicMock
 from copy import deepcopy
-
-from src.tree import Tree
+from unittest.mock import patch
 
 # 假设你的主模块名为 router（根据文件路径调整导入）
 from src.router import (
-    RoundRobinRouter,
-    RandomRouter,
-    CacheAwareRouter,
-    RouteSelector,
-    RandomConfig,
-    RoundRobinConfig,
     CacheAwareConfig,
+    CacheAwareRouter,
     NoAvailableWorkerError,
-    Tree
+    RandomConfig,
+    RandomRouter,
+    RoundRobinConfig,
+    RoundRobinRouter,
+    RouteSelector,
 )
+from src.tree import Tree
 
 
 class DummyTree:
     """简易 Tree mock，用于 CacheAwareRouter 测试"""
+
     def __init__(self):
         self.tenants = set()
         self.matches = {}
@@ -32,7 +31,7 @@ class DummyTree:
 
     def prefix_match(self, text: str):
         # 简化：总是返回空匹配，除非特别设置
-        if hasattr(self, '_mock_match') and text in self._mock_match:
+        if hasattr(self, "_mock_match") and text in self._mock_match:
             matched_text, worker = self._mock_match[text]
             return matched_text, worker
         return "", next(iter(self.tenants)) if self.tenants else ""
@@ -45,7 +44,6 @@ class DummyTree:
 
 
 class TestRouters(unittest.IsolatedAsyncioTestCase):
-
     def setUp(self):
         self.worker_urls = ["http://worker1", "http://worker2", "http://worker3"]
 
@@ -54,10 +52,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
     # ======================
     def test_round_robin_select(self):
         router = RoundRobinRouter(
-            worker_urls=deepcopy(self.worker_urls),
-            current_index=0,
-            timeout_secs=300,
-            interval_secs=10
+            worker_urls=deepcopy(self.worker_urls), current_index=0, timeout_secs=300, interval_secs=10
         )
         first = router.select_generate_worker()
         second = router.select_generate_worker()
@@ -66,35 +61,22 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
         self.assertIn(second, self.worker_urls)
 
     def test_round_robin_empty_workers(self):
-        router = RoundRobinRouter(
-            worker_urls=[],
-            current_index=0,
-            timeout_secs=300,
-            interval_secs=10
-        )
+        router = RoundRobinRouter(worker_urls=[], current_index=0, timeout_secs=300, interval_secs=10)
         with self.assertRaises(NoAvailableWorkerError):
             router.select_generate_worker()
 
     # ===================
     # RandomRouter Tests
     # ===================
-    @patch('src.router.random.randint')
+    @patch("src.router.random.randint")
     def test_random_select(self, mock_randint):
         mock_randint.return_value = 1
-        router = RandomRouter(
-            worker_urls=deepcopy(self.worker_urls),
-            timeout_secs=300,
-            interval_secs=10
-        )
+        router = RandomRouter(worker_urls=deepcopy(self.worker_urls), timeout_secs=300, interval_secs=10)
         selected = router.select_generate_worker()
         self.assertEqual(selected, "http://worker2")
 
     def test_random_empty_workers(self):
-        router = RandomRouter(
-            worker_urls=[],
-            timeout_secs=300,
-            interval_secs=10
-        )
+        router = RandomRouter(worker_urls=[], timeout_secs=300, interval_secs=10)
         with self.assertRaises(NoAvailableWorkerError):
             router.select_generate_worker()
 
@@ -115,7 +97,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
             balance_abs_threshold=10,
             balance_rel_threshold=1.5,
             timeout_secs=300,
-            interval_secs=10
+            interval_secs=10,
         )
         print(router.tree.pretty_print())
         selected = router.select_generate_worker("hello world")
@@ -139,7 +121,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
             balance_abs_threshold=10,
             balance_rel_threshold=1.5,
             timeout_secs=300,
-            interval_secs=10
+            interval_secs=10,
         )
 
         selected = router.select_generate_worker("unseen text")
@@ -155,10 +137,10 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
             running_queue={"http://worker1": 100, "http://worker2": 10, "http://worker3": 10},
             processed_queue={url: 0 for url in self.worker_urls},
             cache_threshold=0.5,
-            balance_abs_threshold=50,   # 100-10=90 > 50
+            balance_abs_threshold=50,  # 100-10=90 > 50
             balance_rel_threshold=1.1,  # 100 > 10*1.1 → True
             timeout_secs=300,
-            interval_secs=10
+            interval_secs=10,
         )
 
         selected = router.select_generate_worker("any text")
@@ -175,7 +157,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
             balance_abs_threshold=10,
             balance_rel_threshold=1.1,
             timeout_secs=300,
-            interval_secs=10
+            interval_secs=10,
         )
         with self.assertRaises(NoAvailableWorkerError):
             router.select_generate_worker("test")
@@ -183,7 +165,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
     # =====================
     # RouteSelector Tests
     # =====================
-    @patch('src.router.Tree', Tree)
+    @patch("src.router.Tree", Tree)
     def test_create_random_router(self):
         selector = RouteSelector()
         config = RandomConfig()
@@ -191,7 +173,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(router, RandomRouter)
         self.assertEqual(router.worker_urls, self.worker_urls)
 
-    @patch('src.router.Tree', Tree)
+    @patch("src.router.Tree", Tree)
     def test_create_round_robin_router(self):
         selector = RouteSelector()
         config = RoundRobinConfig()
@@ -199,7 +181,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(router, RoundRobinRouter)
         self.assertEqual(router.current_index, 0)
 
-    @patch('src.router.Tree', Tree)
+    @patch("src.router.Tree", Tree)
     def test_create_cache_aware_router(self):
         selector = RouteSelector()
         config = CacheAwareConfig()
@@ -211,12 +193,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
 
     def test_update_router_add_remove(self):
         selector = RouteSelector()
-        router = RoundRobinRouter(
-            worker_urls=["http://w1"],
-            current_index=0,
-            timeout_secs=300,
-            interval_secs=10
-        )
+        router = RoundRobinRouter(worker_urls=["http://w1"], current_index=0, timeout_secs=300, interval_secs=10)
 
         selector.update_router("http://w2", router, add=True)
         self.assertIn("http://w2", router.worker_urls)
@@ -224,7 +201,7 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
         selector.update_router("http://w1", router, add=False)
         self.assertNotIn("http://w1", router.worker_urls)
 
-    @patch('src.router.Tree', Tree)
+    @patch("src.router.Tree", Tree)
     async def test_add_remove_worker_cache_aware(self):
         selector = RouteSelector()
         config = CacheAwareConfig()
@@ -247,5 +224,5 @@ class TestRouters(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(urls, router.worker_urls)  # deep copy
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
