@@ -74,8 +74,4 @@ The documents of this project are licensed under CC-BY 4.0. For details, see [CC
 
 ## Acknowledgments
 
-vLLM-Router is jointly developed by the following Huawei department:
-
-Kunpeng Computing BoostKit Development Dept
-
 Thank you to everyone in the community for your PRs. We warmly welcome contributions to vLLM-Router!
