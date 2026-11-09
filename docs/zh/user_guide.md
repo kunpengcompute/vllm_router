@@ -1,5 +1,7 @@
 # 用户指南
 
+本文档介绍vLLM-Router的部署与验证，涵盖安装vLLM推理软硬件环境、启动vLLM实例和安装后验证，适用于需在鲲鹏920处理器与曦云C500 GPU环境上部署vLLM-Router的用户。
+
 ## 安装vLLM推理软硬件环境
 
 以鲲鹏920新型号处理器+沐曦的曦云C500 GPU * 8硬件环境为例，参考沐曦官方的[文档](https://developer.metax-tech.com/api/client/document/preview/781/index.html)安装驱动、固件和vLLM推理容器后，即可进行vLLM-Router的部署。
@@ -17,7 +19,7 @@
   vllm serve /path/to/model/ --port <port> --trust_remote_code
   ```
 
-  其中xxxx为指定的端口号，如8001等。
+  其中`<port>`为指定的端口号，如8001等。
 
 - 在同容器中另起一个会话，按以下命令设置可见的GPU并启动第二个vLLM实例。
 
@@ -26,15 +28,15 @@
   vllm serve /path/to/model/ --port <port> --trust_remote_code
   ```
   
-  其中xxxx为指定的端口号，如8002等。
+  其中`<port>`为指定的端口号，如8002等。
 
 - 在同容器中再启动一个会话，并在该会话下按以下命令启动数据并行路由。
 
   ```bash
-  python launch_server.py --host 127.0.0.1 --port <port> --worker_urls http://127.0.0.1:<port> http://127.0.0.1:<port> --policy round_robin
+  python launch_server.py --host 127.0.0.1 --port 8008 --worker_urls http://127.0.0.1:8001 http://127.0.0.1:8002 --policy round_robin
   ```
 
-  其中port参数为路由的对外端口，如8008，worker_urls为启动的vLLM实例的URL，policy为路由策略，具体参数见《[API参考](./api_reference.md)》。
+  其中port参数为路由服务（Router）的对外端口，如8008，worker_urls为启动的vLLM实例的URL，policy为路由策略，具体参数见《[API参考](./api_reference.md)》。
 
 ## 安装后验证
 
@@ -52,7 +54,7 @@ python benchmark_serving.py --model /path/to/model/ --port xxxx --dataset_name r
 其中：
 
 - --model为使用的模型路径，需要与启动vLLM实例时设置的`/path/to/model/`一致。
-- --port为路由器的对外端口。
+- --port为路由服务（Router）的对外端口。
 - --dataset_name为进行性能测试时使用的数据集，random表示使用随机数据。
 - --random-input-len为进行性能测试时随机输入的长度。
 - --random-output-len为进行性能测试时输出的长度。
@@ -62,7 +64,7 @@ python benchmark_serving.py --model /path/to/model/ --port xxxx --dataset_name r
 
 执行Benchmark测试的结果如下所示。
 
-```text
+```output
 ============ Serving Benchmark Result ============
 Successful requests:                     8         
 Benchmark duration (s):                  72.53      
@@ -85,3 +87,9 @@ Median ITL (ms):                         167.95
 P99 ITL (ms):                            1737.86      
 ==================================================
 ```
+
+## 修订记录
+
+|文档版本| 发布日期   | 修改说明         |
+|----------| ---------- | ---------------- |
+|01| 2026-06-30 | 第一次正式发布。 |

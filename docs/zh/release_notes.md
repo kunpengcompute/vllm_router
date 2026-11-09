@@ -17,13 +17,13 @@
 </tr>
 <tr id="row5497143514612"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.4.1"><p id="p162251517551"><a name="p162251517551"></a><a name="p162251517551"></a>软件包版本</p>
 </th>
-<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.4.1 "><p id="p6225131165519"><a name="p6225131165519"></a><a name="p6225131165519"></a>1.0.0</p>
+<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.4.1 "><p id="p6225131165519"><a name="p6225131165519"></a><a name="p6225131165519"></a>V1.0.0</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-### 与操作系统、编译器和CPU配套说明
+### 与操作系统和CPU配套说明
 
 | 操作系统 | CPU类型 | 其他 |
 | -- | -- | -- |
@@ -56,3 +56,9 @@ vLLM-Router是鲲鹏参与vLLM开源社区的路由插件，旨在支持数据�
 ### 获取文档的方法
 
 您可以通过访问[开源仓](https://gitcode.com/boostkit/vllm_router)浏览和获取相关文档。
+
+## 修订记录
+
+|文档版本| 发布日期   | 修改说明         |
+|----------| ---------- | ---------------- |
+|01| 2026-06-30 | 第一次正式发布。 |
