@@ -1,6 +1,6 @@
 # 用户指南
 
-本文档介绍vLLM-Router的部署与验证，涵盖安装vLLM推理软硬件环境、启动vLLM实例和安装后验证，适用于需在鲲鹏920处理器与曦云C500 GPU环境上部署vLLM-Router的用户。
+本文档介绍vLLM-Router的部署与验证，涵盖安装vLLM推理软硬件环境、启动vLLM实例和安装后验证，适用于需要以数据并行方式部署vLLM推理服务的用户（文中以鲲鹏920处理器与曦云C500 GPU环境为部署示例）。
 
 ## 安装vLLM推理软硬件环境
 
@@ -33,7 +33,7 @@
 - 在同容器中再启动一个会话，并在该会话下按以下命令启动数据并行路由。
 
   ```bash
-  python launch_server.py --host 127.0.0.1 --port 8008 --worker_urls http://127.0.0.1:8001 http://127.0.0.1:8002 --policy round_robin
+  python launch_server.py --host 127.0.0.1 --port <port> --worker_urls http://127.0.0.1:<port> http://127.0.0.1:<port> --policy round_robin
   ```
 
   其中port参数为路由服务（Router）的对外端口，如8008，worker_urls为启动的vLLM实例的URL，policy为路由策略，具体参数见《[API参考](./api_reference.md)》。
