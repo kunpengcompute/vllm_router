@@ -348,7 +348,9 @@ class Tree:
                     queue.append(parent)
 
         # 3. Remove the tenant from the tenant_char_count map
-        del self.tenant_char_count[tenant]
+        # ``pop`` instead of ``del``: the tenant may never have been inserted,
+        # and a KeyError would turn the removal into an internal server error.
+        self.tenant_char_count.pop(tenant, None)
 
     def get_tenant_char_count(self) -> Dict[str, int]:
         with self.lock:

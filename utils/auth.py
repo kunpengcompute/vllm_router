@@ -26,6 +26,16 @@ API_TOKEN_ENV = "VLLM_ROUTER_API_TOKEN"
 
 logger = logging.getLogger("router")
 
+# Number of rejected management / data plane requests. A rising counter is the
+# only signal that a client is guessing tokens, therefore it is kept and
+# reported with every rejection.
+_REJECTED_REQUESTS = {"admin": 0, "api": 0}
+
+
+def rejected_request_count(plane: str = "admin") -> int:
+    """Return the number of rejected requests of the given plane."""
+    return _REJECTED_REQUESTS.get(plane, 0)
+
 
 def resolve_token(explicit: str, env_name: str) -> str:
     """Return the configured token, falling back to the environment variable."""
@@ -55,10 +65,16 @@ def extract_token(request: Request) -> str:
 
 
 def token_matches(provided: str, expected: str) -> bool:
-    """Constant time comparison of the presented and the expected token."""
+    """Constant time comparison of the presented and the expected token.
+
+    The comparison is done on the UTF-8 bytes: ``hmac.compare_digest`` refuses
+    ``str`` objects that contain non-ASCII characters and would raise a
+    ``TypeError`` instead of reporting a mismatch, which would turn a wrong
+    token into a 500 instead of a 401.
+    """
     if not provided or not expected:
         return False
-    return hmac.compare_digest(provided, expected)
+    return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
 def _client_host(request: Request) -> str:
@@ -72,6 +88,7 @@ def require_admin(request: Request) -> str:
 
     expected = getattr(request.app.state, "admin_token", "")
     if not expected:
+        _REJECTED_REQUESTS["admin"] += 1
         logger.error(
             "Rejected management request %s %s: no admin token is configured (start with --admin-token or set %s)",
             request.method,
@@ -82,11 +99,13 @@ def require_admin(request: Request) -> str:
 
     provided = extract_token(request)
     if not token_matches(provided, expected):
+        _REJECTED_REQUESTS["admin"] += 1
         logger.warning(
-            "Rejected unauthenticated management request %s %s from %s",
+            "Rejected unauthenticated management request %s %s from %s (total rejections: %s)",
             request.method,
             request.url.path,
             _client_host(request),
+            _REJECTED_REQUESTS["admin"],
         )
         raise HTTPException(status_code=401, detail="Invalid or missing admin token")
 
@@ -101,11 +120,13 @@ def require_api_token(request: Request) -> str:
 
     provided = extract_token(request)
     if not token_matches(provided, expected):
+        _REJECTED_REQUESTS["api"] += 1
         logger.warning(
-            "Rejected unauthenticated inference request %s %s from %s",
+            "Rejected unauthenticated inference request %s %s from %s (total rejections: %s)",
             request.method,
             request.url.path,
             _client_host(request),
+            _REJECTED_REQUESTS["api"],
         )
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
 

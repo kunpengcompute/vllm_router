@@ -1,5 +1,7 @@
 """Regression tests for the management plane authentication (CWE-862)."""
 
+import asyncio
+import os
 import unittest
 
 from fastapi.responses import JSONResponse
@@ -142,6 +144,110 @@ class TestTokenStrength(unittest.TestCase):
             admin_token="0123456789abcdef0123",
         )
         self.assertEqual(args.admin_token, "0123456789abcdef0123")
+
+    def test_non_ascii_token_does_not_crash_the_comparison(self):
+        """A non-ASCII token must be a mismatch, never a server error.
+
+        ``hmac.compare_digest`` refuses ``str`` objects that contain non-ASCII
+        characters and raises a ``TypeError``, which would turn a wrong token
+        into a 500 instead of a 401.
+        """
+        from utils.auth import token_matches
+
+        self.assertTrue(token_matches("密码密码密码密码密码密码", "密码密码密码密码密码密码"))
+        self.assertFalse(token_matches("密码密码密码密码密码密码", "密码密码密码密码密码密碼"))
+        self.assertFalse(token_matches("ascii-token-0123456789", "密码密码密码密码密码密码"))
+
+    def test_non_ascii_token_is_rejected_with_401(self):
+        """A non-ASCII token must be a mismatch, never a server error.
+
+        The header value cannot be sent as UTF-8 by an HTTP client (the header
+        grammar is ASCII), but a raw request may carry arbitrary bytes that a
+        server decodes as latin-1. The dependency is therefore called
+        directly with a latin-1 decoded value.
+        """
+        from fastapi import HTTPException
+
+        from utils.auth import require_admin
+
+        class _State:
+            admin_token = "密码密码密码密码密码密码密码"
+            allow_anonymous_admin = False
+
+        class _Client:
+            host = "127.0.0.1"
+
+        class _Request:
+            app = type("A", (), {"state": _State()})()
+            method = "GET"
+            url = type("U", (), {"path": "/list_workers"})()
+            client = _Client()
+            headers = {"Authorization": "Bearer 密码密码密码密码密码密码密碼"}
+
+        with self.assertRaises(HTTPException) as ctx:
+            require_admin(_Request())
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_failed_authentication_is_counted(self):
+        from utils.auth import rejected_request_count
+
+        app = _app(admin_token="s3cr3t-admin-token-value")
+        client = TestClient(app)
+        before = rejected_request_count("admin")
+        client.get("/list_workers", headers={"Authorization": "Bearer wrong-token-value"})
+        self.assertEqual(rejected_request_count("admin"), before + 1)
+
+
+class TestTokenSourcePrecedence(unittest.TestCase):
+    def test_environment_variable_is_used_when_no_flag_is_given(self):
+        from utils.auth import ADMIN_TOKEN_ENV, resolve_token
+
+        os.environ[ADMIN_TOKEN_ENV] = "env-token-0123456789"
+        try:
+            self.assertEqual(resolve_token("", ADMIN_TOKEN_ENV), "env-token-0123456789")
+            # An explicit token wins over the environment variable.
+            self.assertEqual(resolve_token("flag-token-0123456789", ADMIN_TOKEN_ENV), "flag-token-0123456789")
+        finally:
+            del os.environ[ADMIN_TOKEN_ENV]
+
+
+class TestManagementEndpointsDoNotCrash(unittest.TestCase):
+    """The management endpoints must never answer with a 500."""
+
+    def test_remove_worker_without_a_policy_router(self):
+        """Removing a worker must not crash when no policy router exists.
+
+        The policy router is only created when the router is started with at
+        least one worker. A worker that was registered afterwards is only
+        known to the backend pool, so there is nothing to remove from the
+        router - the endpoint used to raise an AttributeError.
+        """
+        from launch_server import Router
+
+        async def scenario():
+            router = Router()
+            router.router = None
+            router.backends["http://worker1:8001"] = object()
+            return router.remove_workers(["http://worker1:8001"])
+
+        msg = asyncio.run(scenario())
+        self.assertIn("delete", msg)
+
+    def test_remove_unknown_worker_is_reported_not_raised(self):
+        from launch_server import Router
+
+        async def scenario():
+            router = Router()
+            return router.remove_workers(["http://unknown:8001"])
+
+        msg = asyncio.run(scenario())
+        self.assertIn("failed", msg)
+
+    def test_removing_an_unknown_tenant_does_not_crash_the_tree(self):
+        from src.tree import Tree
+
+        tree = Tree()
+        tree.remove_tenant("http://never-inserted:8001")
 
 
 if __name__ == "__main__":

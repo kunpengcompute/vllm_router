@@ -48,6 +48,10 @@ RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
 # requirements.txt: pydantic>=2.5.3, aiohttp>=3.9.5, fastapi>=0.115.12
 # uvicorn: launch_server.py/online_test*.py 的 ASGI 服务器
 # pytest: UT 驱动框架 (test_*.py 使用 unittest.TestCase)
+# httpx: test_management_auth.py 使用 fastapi.testclient.TestClient,
+#        它依赖 starlette.testclient, 而 starlette.testclient 依赖 httpx。
+#        缺少 httpx 时该用例在收集阶段即失败:
+#        "The starlette.testclient module requires the httpx package to be installed"
 # 直接内联依赖, 无需构建上下文提供 requirements.txt
 # 使用 python3 -m pytest 避免 pytest 可执行脚本不在 PATH 中
 RUN pip3 install --no-cache-dir \
@@ -56,6 +60,7 @@ RUN pip3 install --no-cache-dir \
         "fastapi>=0.115.12" \
         uvicorn \
         pytest \
+        httpx \
     && python3 -c "import pydantic, aiohttp, fastapi; print('pydantic', pydantic.VERSION, '| aiohttp', aiohttp.__version__, '| fastapi', fastapi.__version__)" \
     && python3 -m pytest --version
 

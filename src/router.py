@@ -161,7 +161,8 @@ class CacheAwareRouter(RouterBase):
     lock: threading.RLock = threading.RLock()
 
     def delete_worker(self, worker_url: str):
-        self.worker_urls.remove(worker_url)
+        if worker_url in self.worker_urls:
+            self.worker_urls.remove(worker_url)
         with self.lock:
             self.processed_queue.pop(worker_url, None)
             self.running_queue.pop(worker_url, None)
@@ -327,7 +328,12 @@ class RouteSelector:
             return True, f"Successfully added worker: {worker_url}"
 
     def remove_worker(self, worker_url: str, router: RouterBase):
-        router.worker_urls.remove(worker_url)
+        # The worker may already be gone (it can be removed concurrently by the
+        # health monitor). ``list.remove`` raises a ValueError in that case,
+        # which would turn the management request into an internal server
+        # error.
+        if worker_url in router.worker_urls:
+            router.worker_urls.remove(worker_url)
         logger.info(f"Removed worker: {worker_url}")
 
         # if cache aware, remove the worker from the tree

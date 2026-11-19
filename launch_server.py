@@ -465,7 +465,13 @@ class Router:
             if url in self.backends:
                 self.backends.pop(url)
                 delete_urls_succeed.append(url)
-                self.router_selector.remove_worker(url, self.router)
+                # The policy router is only created when the router was started
+                # with at least one worker. A worker that was registered while
+                # no policy router existed is only known to the backend pool,
+                # so there is nothing to remove from the router. Without this
+                # guard the endpoint answered with an internal server error.
+                if self.router is not None:
+                    self.router_selector.remove_worker(url, self.router)
             else:
                 delete_urls_failed.append(url)
                 logger.info(f"Worker {url} not found, skipping removal")
