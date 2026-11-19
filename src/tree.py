@@ -8,6 +8,8 @@ from heapq import heappop, heappush
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
+from utils.logger import logger
+
 
 def shared_prefix_count(a: str, b: str) -> int:
     min_len = min(len(a), len(b))
@@ -55,12 +57,62 @@ class Tree:
     2. Node-level lock to enable concurrent access on nodes
     3. Leaf LRU eviction based on tenant access time
 
+    The tree is bounded on purpose:
+
+    * ``max_nodes`` caps the total number of nodes. A request that would
+      exceed the cap is not cached, the routing falls back to load balancing.
+      Without this cap a client that sends many requests with a shared
+      prefix and a varying tail creates one node per request, which exhausts
+      the memory of the router (CWE-400).
+    * ``max_depth`` caps the length of a chain. Every lookup walks the chain
+      and every hit updates the access time of the whole ancestor chain, so
+      an unbounded depth turns a single request into an O(depth) operation.
+    * ``max_text_length`` caps the number of characters that are stored per
+      insertion. Only the prefix of a prompt is relevant for the cache aware
+      routing, so the tail is dropped.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        max_nodes: int = 2**24,
+        max_depth: int = 64,
+        max_text_length: int = 4096,
+    ):
         self.root = Node()
         self.tenant_char_count: Dict[str, int] = defaultdict(int)
         self.lock = threading.RLock()
+        self.max_nodes = max_nodes
+        self.max_depth = max_depth
+        self.max_text_length = max_text_length
+        # The root node is part of the budget.
+        self.node_count = 1
+        self._node_count_lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # resource accounting
+    # ------------------------------------------------------------------
+    def _reserve_node(self) -> bool:
+        """Reserve a node slot. Returns False when the tree is full."""
+        with self._node_count_lock:
+            if self.node_count >= self.max_nodes:
+                return False
+            self.node_count += 1
+            return True
+
+    def _release_node(self) -> None:
+        with self._node_count_lock:
+            if self.node_count > 1:
+                self.node_count -= 1
+
+    def get_node_count(self) -> int:
+        """Return the number of nodes currently held by the tree."""
+        with self._node_count_lock:
+            return self.node_count
+
+    def is_full(self) -> bool:
+        """Return True when no further node can be allocated."""
+        with self._node_count_lock:
+            return self.node_count >= self.max_nodes
 
     def insert(self, text: str, tenant: str):
         # 插入字符串到树中
@@ -68,14 +120,24 @@ class Tree:
         curr_idx = 0
         timestamp_us = int(time.time() * 10000000)
 
+        # Only a bounded prefix of the text is relevant for the routing
+        # decision, and only a bounded number of characters may be stored.
+        if len(text) > self.max_text_length:
+            text = text[: self.max_text_length]
+
         with self.lock:
             curr.tenant_last_access_time[tenant] = timestamp_us
             self.tenant_char_count[tenant] += 0
 
         prev = self.root
         text_count = len(text)
+        depth = 0
 
         while curr_idx < text_count:
+            if depth >= self.max_depth:
+                # The chain is too deep, the rest of the text is not cached.
+                break
+
             first_char = text[curr_idx]
             curr = prev
 
@@ -85,6 +147,13 @@ class Tree:
                     curr_text = text[curr_idx:text_count]
 
                     curr_text_count = len(curr_text)
+                    # The tree has a hard node budget. A request that does not
+                    # fit is not cached at all, the cache aware routing then
+                    # falls back to load balancing (CWE-400).
+                    if not self._reserve_node():
+                        self._warn_tree_full(tenant)
+                        return
+
                     new_node = Node()
                     new_node.text = curr_text
                     new_node.parent = curr
@@ -94,6 +163,7 @@ class Tree:
 
                     prev = new_node
                     curr_idx = text_count
+                    depth += 1
                 else:
                     # 处理匹配上的节点
                     matched_node = curr.children[first_char]
@@ -114,6 +184,10 @@ class Tree:
                         matched_text = matched_node_text[:shared_count]
                         contracted_text = matched_node_text[shared_count:matched_node_text_count]
                         matched_text_count = len(matched_text)
+                        if not self._reserve_node():
+                            self._warn_tree_full(tenant)
+                            return
+
                         new_node = Node()
                         new_node.text = matched_text
                         new_node.parent = curr
@@ -136,6 +210,7 @@ class Tree:
 
                         prev.tenant_last_access_time[tenant] = timestamp_us
                         curr_idx += shared_count
+                        depth += 1
                     else:
                         # move to next node
                         prev = matched_node
@@ -146,14 +221,34 @@ class Tree:
 
                         prev.tenant_last_access_time[tenant] = timestamp_us
                         curr_idx += shared_count
+                        depth += 1
+
+    def _warn_tree_full(self, tenant: str) -> None:
+        """Log a full tree, but not for every single request."""
+        now = time.monotonic()
+        with self.lock:
+            last = getattr(self, "_last_full_warning", 0.0)
+            if now - last < 60:
+                return
+            self._last_full_warning = now
+        logger.warning(
+            "Prefix cache tree is full (%s nodes), dropping the cache entry for tenant %s",
+            self.get_node_count(),
+            tenant,
+        )
 
     def prefix_match(self, text) -> (str, str):
         curr_idx = 0
 
         prev = self.root
         text_count = len(text)
+        depth = 0
 
         while curr_idx < text_count:
+            # The lookup walks the chain, so it has to be bounded as well.
+            if depth >= self.max_depth:
+                break
+
             first_char = text[curr_idx]
             curr_text = text[curr_idx:]
             curr = prev
@@ -167,10 +262,12 @@ class Tree:
                     # Full match, continue to the next node
                     curr_idx += shared_count
                     prev = matched_node
+                    depth += 1
                 else:
                     # Partial match, stop here
                     curr_idx += shared_count
                     prev = matched_node
+                    depth += 1
                     break
             else:
                 break
@@ -184,10 +281,12 @@ class Tree:
 
         if tenant != "empty":
             current_node = curr
-            while current_node:
+            levels = 0
+            while current_node and levels < self.max_depth:
                 with current_node.lock:
                     current_node.tenant_last_access_time[tenant] = timestamp_us
                 current_node = current_node.parent
+                levels += 1
 
         ret_text = text[0:curr_idx]
         return ret_text, tenant
@@ -197,8 +296,13 @@ class Tree:
 
         prev = self.root
         text_count = len(text)
+        depth = 0
 
         while curr_idx < text_count:
+            # The lookup walks the chain, so it has to be bounded as well.
+            if depth >= self.max_depth:
+                break
+
             first_char = text[curr_idx]
             curr_text = text[curr_idx:text_count]
 
@@ -218,10 +322,12 @@ class Tree:
                     # Full match with current node's text, continue to next node
                     curr_idx += shared_count
                     prev = matched_node
+                    depth += 1
                 else:
                     # Partial match, stop here
                     curr_idx += shared_count
                     prev = matched_node
+                    depth += 1
                     break
             else:
                 # No match found, stop here
@@ -234,10 +340,12 @@ class Tree:
             timestamp_us = int(time.time() * 10000000)
 
             current_node = curr
-            while current_node:
+            levels = 0
+            while current_node and levels < self.max_depth:
                 with current_node.lock:
                     current_node.tenant_last_access_time[tenant] = timestamp_us
                 current_node = current_node.parent
+                levels += 1
 
         return text[0:curr_idx]
 
@@ -299,7 +407,9 @@ class Tree:
                 if node.parent:
                     first_char = node.text[0] if node.text else None
                     if first_char:
-                        del node.parent.children[first_char]
+                        if node.parent.children.get(first_char) is node:
+                            del node.parent.children[first_char]
+                            self._release_node()
 
             # Add parent to queue if it becomes a leaf
             if node.parent:
@@ -339,7 +449,9 @@ class Tree:
                     if parent is not None:
                         first_char = next(iter(curr.text), None)
                         if first_char is not None:
-                            del parent.children[first_char]
+                            if parent.children.get(first_char) is curr:
+                                del parent.children[first_char]
+                                self._release_node()
 
             # add parent to queue if it becomes a leaf
             with curr.lock:

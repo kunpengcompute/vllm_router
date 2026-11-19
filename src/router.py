@@ -48,6 +48,8 @@ class CacheAwareConfig(PolicyConfig):
     balance_rel_threshold: float = 1.0001
     eviction_interval_secs: int = 60
     max_tree_size: int = 2**24
+    max_cache_depth: int = 64
+    max_cache_text_length: int = 4096
 
 
 class RouterType(Enum):
@@ -246,7 +248,14 @@ class RouteSelector:
             balance_rel_threshold = policy_config.balance_rel_threshold
 
             # 初始化树和队列
-            tree = Tree()
+            # The tree is bounded: max_tree_size caps the number of nodes,
+            # max_cache_depth the length of a chain and max_cache_text_length
+            # the number of characters stored per insertion (CWE-400).
+            tree = Tree(
+                max_nodes=policy_config.max_tree_size,
+                max_depth=policy_config.max_cache_depth,
+                max_text_length=policy_config.max_cache_text_length,
+            )
             running_queue = {url: 0 for url in worker_urls}
             processed_queue = {url: 0 for url in worker_urls}
 

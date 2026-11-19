@@ -43,6 +43,10 @@ from src.router import (
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
+# Maximum number of characters of a request that are handed to the prefix
+# cache tree. The cache aware routing only needs a prefix of the prompt.
+MAX_CACHE_TEXT_LENGTH = 4096
+
 
 class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
     """Custom formatter that preserves both description formatting and shows defaults"""
@@ -151,6 +155,22 @@ Examples:
         type=int,
         default=2**24,
         help="Maximum size of the approximation tree for cache-aware routing",
+    )
+    parser.add_argument(
+        "--max-cache-depth",
+        "--max_cache_depth",
+        dest="max_cache_depth",
+        type=int,
+        default=64,
+        help="Maximum length of a chain in the prefix cache tree",
+    )
+    parser.add_argument(
+        "--max-cache-text-length",
+        "--max_cache_text_length",
+        dest="max_cache_text_length",
+        type=int,
+        default=4096,
+        help="Maximum number of characters of a request that are stored in the prefix cache tree",
     )
     parser.add_argument(
         "--log-dir",
@@ -544,26 +564,37 @@ class Router:
             return StreamingResponse(stream_gen(), media_type="text/event-stream")
 
     @staticmethod
-    def get_text_from_request(body, api: str) -> str:
+    def get_text_from_request(body, api: str, max_length: int = MAX_CACHE_TEXT_LENGTH) -> str:
+        """Extract the text that is used for the cache aware routing.
+
+        The text is truncated to ``max_length`` characters. Only a bounded
+        prefix of a prompt is relevant for the routing decision, but an
+        unbounded text is stored in the prefix cache tree and would let a
+        client blow up the memory of the router (CWE-400).
+        """
+        text = ""
+
         if api == "generate":
             # For "/generate", always use the "text" field.
-            text = body.get("text")
-            if isinstance(text, str):
-                return text
-            logger.warning("No 'text' field found in request body for /generate")
-            return ""
-
-        if api in ("v1/completions",):
+            value = body.get("text")
+            if isinstance(value, str):
+                text = value
+            else:
+                logger.warning("No 'text' field found in request body for /generate")
+        elif api in ("v1/completions",):
             # try "messages", then "prompt", then "text".
             if messages := body.get("messages"):
-                return json.dumps(messages)
-            if prompt := body.get("prompt"):
-                return str(prompt)
-            logger.warning("Missing 'messages' or 'prompt' in request body")
-            return ""
+                text = json.dumps(messages)
+            elif prompt := body.get("prompt"):
+                text = str(prompt)
+            else:
+                logger.warning("Missing 'messages' or 'prompt' in request body")
+        else:
+            logger.warning(f"Unknown route: {api} - using fallback")
 
-        logger.warning(f"Unknown route: {api} - using fallback")
-        return ""
+        if len(text) > max_length:
+            text = text[:max_length]
+        return text
 
     def select_generate_worker(self, body, api: str) -> str:
         if isinstance(self.router, (RoundRobinRouter, RandomRouter)):
@@ -730,6 +761,8 @@ if __name__ == "__main__":
             balance_rel_threshold=router_configuration.balance_rel_threshold,
             eviction_interval_secs=router_configuration.eviction_interval_secs,
             max_tree_size=router_configuration.max_tree_size,
+            max_cache_depth=router_configuration.max_cache_depth,
+            max_cache_text_length=router_configuration.max_cache_text_length,
             timeout_secs=router_configuration.worker_startup_timeout_secs,
             interval_secs=router_configuration.worker_startup_check_interval,
         )
