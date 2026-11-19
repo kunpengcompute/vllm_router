@@ -442,6 +442,17 @@ class Router:
         if isinstance(urls, str):
             urls = [urls]
 
+        # Normalise here and not only in the registration endpoint: the
+        # workers that are passed on the command line go through the same
+        # path, and "http://worker:8001" and "http://worker:8001/" have to
+        # be the same worker in the pool.
+        normalized_urls: List[str] = []
+        for url in urls:
+            candidate = normalize_worker_url(url)
+            if candidate and candidate not in normalized_urls:
+                normalized_urls.append(candidate)
+        urls = normalized_urls
+
         # 分离已存在和新的 URL
         existing_urls = []
         new_urls = []
@@ -776,7 +787,9 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
                 )
 
         # Normalise and de-duplicate so that the same worker cannot be
-        # registered several times under different spellings.
+        # registered several times under different spellings. The same
+        # normalisation happens in Router.add_workers, this is only the
+        # first of the two.
         normalized: List[str] = []
         for url in urls_list:
             candidate = normalize_worker_url(url)
