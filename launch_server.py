@@ -25,7 +25,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Dict, List, Tuple
 
 import aiohttp
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.requests import Request
 
@@ -39,6 +39,13 @@ from src.router import (
     RoundRobinConfig,
     RoundRobinRouter,
     RouteSelector,
+)
+from utils.auth import (
+    ADMIN_TOKEN_ENV,
+    API_TOKEN_ENV,
+    require_admin,
+    require_api_token,
+    resolve_token,
 )
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
@@ -164,6 +171,42 @@ Examples:
         "--verbose",
         action="store_true",
         help="Enable verbose logging",
+    )
+
+    # Authentication / authorization
+    parser.add_argument(
+        "--admin-token",
+        "--admin_token",
+        dest="admin_token",
+        type=str,
+        default="",
+        help=(
+            "Shared secret required by the management endpoints "
+            "(/add_workers, /remove_workers, /list_workers, /pretty_print_tree). "
+            f"May also be provided via the {ADMIN_TOKEN_ENV} environment variable. "
+            "When unset the management endpoints are disabled and reject every request."
+        ),
+    )
+    parser.add_argument(
+        "--api-token",
+        "--api_token",
+        dest="api_token",
+        type=str,
+        default="",
+        help=(
+            "Optional shared secret required by the inference endpoint /v1/completions. "
+            f"May also be provided via the {API_TOKEN_ENV} environment variable."
+        ),
+    )
+    parser.add_argument(
+        "--allow-anonymous-admin",
+        "--allow_anonymous_admin",
+        dest="allow_anonymous_admin",
+        action="store_true",
+        help=(
+            "Allow unauthenticated access to the management endpoints. "
+            "Insecure, only intended for trusted/loopback deployments."
+        ),
     )
 
     args = parser.parse_args()
@@ -641,46 +684,92 @@ def make_lifespan(worker_urls: list, policy_config):
     return lifespan
 
 
-def create_app(worker_urls, policy_config) -> FastAPI:
+def create_app(
+    worker_urls,
+    policy_config,
+    admin_token: str = "",
+    api_token: str = "",
+    allow_anonymous_admin: bool = False,
+) -> FastAPI:
     app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config))
+
+    # Authentication state for the management / data planes.
+    app.state.admin_token = resolve_token(admin_token, ADMIN_TOKEN_ENV)
+    app.state.api_token = resolve_token(api_token, API_TOKEN_ENV)
+    app.state.allow_anonymous_admin = allow_anonymous_admin
+
+    if not app.state.admin_token and not allow_anonymous_admin:
+        logger.warning(
+            "No admin token configured: the management endpoints "
+            "(/add_workers, /remove_workers, /list_workers, /pretty_print_tree) "
+            "will reject every request. Start with --admin-token or set %s.",
+            ADMIN_TOKEN_ENV,
+        )
+    elif allow_anonymous_admin:
+        logger.warning(
+            "Anonymous access to the management endpoints is enabled (--allow-anonymous-admin). "
+            "This exposes the routing topology to anyone who can reach this port."
+        )
 
     @app.get("/health")
     async def alive():
         print("收到测活请求")
         return "OK"
 
-    @app.post("/v1/completions")
+    @app.post("/v1/completions", dependencies=[Depends(require_api_token)])
     async def generate(body: CompletionRequest, request: Request):
         body = body.model_dump()
         res = await app.router.forward_request(body, "v1/completions")
         return res
 
     @app.post("/add_workers")
-    async def add_workers(body: WorkUrls, request: Request) -> Response:
+    async def add_workers(body: WorkUrls, request: Request, operator: str = Depends(require_admin)) -> Response:
         body = body.model_dump()
         urls = body.get("urls")
         if not urls:
             return Response(content="Worker URL required. Provide 'url' query parameter", status_code=400)
+        logger.info(
+            "AUDIT add_workers operator=%s client=%s urls=%s",
+            operator,
+            request.client.host if request.client else "-",
+            len(urls) if isinstance(urls, list) else 1,
+        )
         _, _, msg = await app.router.add_workers(urls)
         return Response(content=msg)
 
     @app.get("/list_workers")
-    async def list_workers() -> Response:
+    async def list_workers(request: Request, operator: str = Depends(require_admin)) -> Response:
+        logger.info(
+            "AUDIT list_workers operator=%s client=%s",
+            operator,
+            request.client.host if request.client else "-",
+        )
         urls = await app.router.get_worker_urls()
         msg = f"{urls}"
         return Response(content=msg)
 
     @app.post("/remove_workers")
-    async def remove_workers(body: WorkUrls, request: Request) -> Response:
+    async def remove_workers(body: WorkUrls, request: Request, operator: str = Depends(require_admin)) -> Response:
         body = body.model_dump()
         urls = body.get("urls")
         if not urls:
             return Response(status_code=400)
+        logger.info(
+            "AUDIT remove_workers operator=%s client=%s urls=%s",
+            operator,
+            request.client.host if request.client else "-",
+            len(urls) if isinstance(urls, list) else 1,
+        )
         msg = app.router.remove_workers(urls)
         return Response(content=msg)
 
     @app.get("/pretty_print_tree")
-    async def pretty_print_tree() -> Response:
+    async def pretty_print_tree(request: Request, operator: str = Depends(require_admin)) -> Response:
+        logger.info(
+            "AUDIT pretty_print_tree operator=%s client=%s",
+            operator,
+            request.client.host if request.client else "-",
+        )
         if isinstance(app.router.router, CacheAwareRouter):
             msg, node_count = app.router.router.tree.pretty_print()
             msg = msg + "\n" + "The total number of node is: " + str(node_count)
@@ -733,7 +822,13 @@ if __name__ == "__main__":
             timeout_secs=router_configuration.worker_startup_timeout_secs,
             interval_secs=router_configuration.worker_startup_check_interval,
         )
-    app = create_app(router_configuration.worker_urls, policy_config)
+    app = create_app(
+        router_configuration.worker_urls,
+        policy_config,
+        admin_token=router_configuration.admin_token,
+        api_token=router_configuration.api_token,
+        allow_anonymous_admin=router_configuration.allow_anonymous_admin,
+    )
     logging.info(f"Initializing router on {router_configuration.host}:{router_configuration.port}")
     logging.info(f"Initializing workers on {router_configuration.worker_urls}")
     logging.info(f"Policy Config: {router_configuration.policy}")

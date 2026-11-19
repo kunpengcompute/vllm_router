@@ -4,6 +4,20 @@
 
 本接口为文本补全（completion）服务的请求参数规范。由于本软件实现的是对vLLM服务实例的路由，需要将接收到的请求透传给vLLM实例，故该接口完全兼容vLLM（0.8.2）的/v1/completions接口。
 
+## 鉴权说明
+
+管理面接口（`/add_workers`、`/remove_workers`、`/list_workers`、`/pretty_print_tree`）与数据面接口（`/v1/completions`）监听同一端口，默认行为如下：
+
+| 接口 | 默认鉴权 | 说明 |
+|------|----------|------|
+| `GET /health` | 无 | 存活探测，始终公开。 |
+| 管理面接口 | **强制** | 未配置 `--admin-token`（或环境变量 `VLLM_ROUTER_ADMIN_TOKEN`）时一律返回 403；配置后需携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`，否则返回 401。 |
+| `POST /v1/completions` | 可选 | 配置 `--api-token`（或环境变量 `VLLM_ROUTER_API_TOKEN`）后需携带令牌，否则返回 401；未配置时不鉴权。 |
+
+令牌长度不得少于 16 个字符。管理面鉴权失败与所有管理操作均会记录审计日志。
+
+> 如需恢复匿名访问管理面（仅建议在可信内网/回环部署下使用），可显式传入 `--allow-anonymous-admin`。
+
 ## POST /add_workers
   
 增加vLLM服务实例。
@@ -64,6 +78,14 @@
   | balance_rel_threshold | float | 1.0001 | 1 < x < 3 | 相对负载比阈值（max_load / min_load），超过则触发负载均衡。 |
   | eviction_interval_secs | int | 60 | 1 ~ 100 | 缓存亲和性映射表的清理间隔（秒）。 |
   | max_tree_size | int | 2^24 | 2^15 ~ 2^26 | 内部缓存路由树的最大节点数，控制内存占用。 |
+
+- 鉴权参数
+
+  | 参数名 | 类型 | 默认值 | 说明 | 校验规则 |
+  | ------ | ---- | ------ | ---- | -------- |
+  | admin_token | str | "" | 管理面接口（`/add_workers`、`/remove_workers`、`/list_workers`、`/pretty_print_tree`）所需的共享密钥。也可用环境变量 `VLLM_ROUTER_ADMIN_TOKEN` 提供。未配置时管理面接口一律拒绝。 | 非空时长度不得少于 16 个字符，且首尾不得有空白。 |
+  | api_token | str | "" | 推理接口 `/v1/completions` 的可选共享密钥。也可用环境变量 `VLLM_ROUTER_API_TOKEN` 提供。未配置时该接口不鉴权。 | 非空时长度不得少于 16 个字符，且首尾不得有空白。 |
+  | allow_anonymous_admin | bool | False | 是否允许匿名访问管理面接口。仅建议在可信内网/回环部署下使用。 | - |
 
 - 日志与调试
 

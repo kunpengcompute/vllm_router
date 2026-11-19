@@ -4,6 +4,20 @@
 
 This API is the request parameter specification for the text completion service. Since this software implements routing to vLLM service instances, it needs to transparently pass through the received requests to the vLLM instances. Therefore, this API is fully compatible with `/v1/completions` of vLLM (version 0.8.2).
 
+## Authentication
+
+The management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/pretty_print_tree`) and the data plane endpoint (`/v1/completions`) are served on the same port. The defaults are:
+
+| Endpoint | Default auth | Description |
+|----------|--------------|-------------|
+| `GET /health` | none | Liveness probe, always public. |
+| Management endpoints | **enforced** | Without `--admin-token` (or the `VLLM_ROUTER_ADMIN_TOKEN` environment variable) every request is rejected with 403. Once configured, the caller must send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`, otherwise 401 is returned. |
+| `POST /v1/completions` | optional | When `--api-token` (or `VLLM_ROUTER_API_TOKEN`) is configured the token is required, otherwise 401 is returned. Without the option the endpoint is not authenticated. |
+
+Tokens must be at least 16 characters long. Failed authentication attempts and every management operation are written to the audit log.
+
+> `--allow-anonymous-admin` restores anonymous management access. Use it only on trusted internal / loopback deployments.
+
 ## POST /add_workers
   
 Adds vLLM service instances.
@@ -64,6 +78,14 @@ This API defines the startup configuration parameters for the request routing se
   | balance_rel_threshold  | float  | 1.0001  |  (1, 3)| Relative load ratio threshold (<code>max_load</code>/<code>min_load</code>). If the ratio exceeds the threshold, load balancing is triggered. |
   |  eviction_interval_secs |  int |  60 | 1–100 | Interval for clearing the cache affinity mapping table, in seconds. |
   | max_tree_size  | int  | 2<sup>24</sup> | 2<sup>15</sup>–2<sup>26</sup> | Maximum number of nodes in the internal cache routing tree, which controls the memory usage. |
+
+- Authentication
+
+  | Parameter | Type | Default Value | Description | Verification Rule |
+  |-----------|------|---------------|-------------|-------------------|
+  | admin_token | str | "" | Shared secret required by the management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/pretty_print_tree`). May also be supplied via the `VLLM_ROUTER_ADMIN_TOKEN` environment variable. Without it the management endpoints reject every request. | When set, at least 16 characters and no leading/trailing whitespace. |
+  | api_token | str | "" | Optional shared secret for the inference endpoint `/v1/completions`. May also be supplied via the `VLLM_ROUTER_API_TOKEN` environment variable. | When set, at least 16 characters and no leading/trailing whitespace. |
+  | allow_anonymous_admin | bool | False | Allow unauthenticated access to the management endpoints. Recommended only for trusted internal / loopback deployments. | - |
 
 - Logging and debugging
 
