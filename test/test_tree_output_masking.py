@@ -28,6 +28,21 @@ class TestMaskNodeText(unittest.TestCase):
     def test_empty_text(self):
         self.assertIn("len=0", mask_node_text(""))
 
+    def test_digest_is_salted(self):
+        """The digest must not be the plain hash of the text.
+
+        Without a salt the digest could be precomputed by everybody who can
+        read the debug output: a short prompt would be recovered by hashing
+        every candidate.
+        """
+        import hashlib
+
+        plain = hashlib.sha256(SECRET.encode("utf-8")).hexdigest()[:8]
+        self.assertNotIn(plain, mask_node_text(SECRET))
+
+    def test_digest_is_stable_within_the_process(self):
+        self.assertEqual(mask_node_text(SECRET), mask_node_text(SECRET))
+
 
 class TestPrettyPrintDoesNotLeak(unittest.TestCase):
     def test_dump_contains_no_prompt(self):

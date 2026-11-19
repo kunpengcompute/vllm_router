@@ -1,5 +1,6 @@
 # Adapted from: https://github.com/sgl-project/sglang/blob/v0.5.1/sgl-router/src/tree.rs
 import hashlib
+import os
 import threading
 import time
 from collections import defaultdict, deque
@@ -14,18 +15,27 @@ from utils.logger import logger
 # Number of characters of the digest that is shown instead of the prompt.
 DIGEST_PREVIEW_LENGTH = 8
 
+# Random salt of the process. The salt makes the digest unpredictable for
+# everybody who can read the debug output: without it a short or predictable
+# prompt could be recovered by hashing every candidate ("rainbow table").
+_DIGEST_SALT = os.urandom(16)
+
 
 def mask_node_text(text: str) -> str:
     """Return a masked representation of the text of a node.
 
     The text of a node is the raw prompt of a client. It is never dumped
     verbatim: the debug output only shows the length and a short digest of
-    the text, which is enough to correlate two nodes but does not disclose
-    the prompt itself (CWE-200).
+    the text, which is enough to correlate two nodes.
+
+    The digest is salted with a random value that only exists in the memory
+    of the running process, so it cannot be precomputed by a reader of the
+    debug output. It is therefore a pseudonym, not a cryptographic
+    protection of the prompt: the prompt itself is never written out.
     """
     if not text:
         return "'' (len=0)"
-    digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:DIGEST_PREVIEW_LENGTH]
+    digest = hashlib.sha256(_DIGEST_SALT + text.encode("utf-8", errors="replace")).hexdigest()[:DIGEST_PREVIEW_LENGTH]
     return f"'{digest}' (len={len(text)})"
 
 
