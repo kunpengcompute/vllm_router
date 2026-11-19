@@ -87,6 +87,8 @@ class Tree:
         # The root node is part of the budget.
         self.node_count = 1
         self._node_count_lock = threading.Lock()
+        # Timestamp of the last "tree is full" warning, used to throttle it.
+        self._last_full_warning = 0.0
 
     # ------------------------------------------------------------------
     # resource accounting
@@ -227,8 +229,7 @@ class Tree:
         """Log a full tree, but not for every single request."""
         now = time.monotonic()
         with self.lock:
-            last = getattr(self, "_last_full_warning", 0.0)
-            if now - last < 60:
+            if now - self._last_full_warning < 60:
                 return
             self._last_full_warning = now
         logger.warning(

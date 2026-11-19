@@ -35,7 +35,11 @@ class TestNodeBudget(unittest.TestCase):
             tree.insert(f"{'D' * 16}{i:08d}", "tenant1")
         before = tree.get_node_count()
         tree.evict_tenant_by_size(1)
-        self.assertLessEqual(tree.get_node_count(), before)
+        after = tree.get_node_count()
+        # The assertion has to be a real one: "after <= before" would also
+        # hold when the eviction never releases a node at all.
+        self.assertLess(after, before)
+        self.assertGreaterEqual(after, 1)
 
 
 class TestDepthLimit(unittest.TestCase):
