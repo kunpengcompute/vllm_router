@@ -15,14 +15,17 @@
 import argparse
 import asyncio
 import copy
+import ipaddress
 import json
 import logging
 import os
+import socket
 import time
 from asyncio import Semaphore
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
+from urllib.parse import urlparse
 
 import aiohttp
 from fastapi import FastAPI, HTTPException
@@ -42,6 +45,94 @@ from src.router import (
 )
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
+
+# Maximum number of worker URLs accepted in a single registration request.
+# Every registered URL is polled by the health monitor every 3 seconds, so an
+# unbounded batch size turns the registration endpoint into an amplifier for
+# both outbound traffic and the worker pool.
+MAX_WORKER_URLS_PER_REQUEST = 64
+
+_LOCAL_ADDRESSES_CACHE: Set[str] | None = None
+
+
+def _local_addresses() -> Set[str]:
+    """Return the addresses that belong to this host."""
+    global _LOCAL_ADDRESSES_CACHE
+    if _LOCAL_ADDRESSES_CACHE is not None:
+        return _LOCAL_ADDRESSES_CACHE
+
+    addresses: Set[str] = set()
+    for candidate in (socket.gethostname(), "127.0.0.1", "::1"):
+        try:
+            for info in socket.getaddrinfo(candidate, None):
+                sockaddr = info[4]
+                if sockaddr and sockaddr[0]:
+                    addresses.add(sockaddr[0])
+        except OSError:
+            continue
+    _LOCAL_ADDRESSES_CACHE = addresses
+    return addresses
+
+
+def _resolve_addresses_sync(host: str, port: int) -> List[str]:
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return []
+    return [info[4][0] for info in infos if info[4] and info[4][0]]
+
+
+def normalize_worker_url(url: str) -> str:
+    """Normalise a worker URL so that the same worker is registered once.
+
+    Without this, ``http://worker:8001`` and ``http://worker:8001/`` are two
+    different keys in the worker pool, and the second one produces malformed
+    request paths such as ``http://worker:8001//health``.
+    """
+    return url.strip().rstrip("/")
+
+
+async def is_router_self_reference(url: str, router_port: int) -> bool:
+    """Return True when ``url`` points back at this very router instance.
+
+    The router binds ``0.0.0.0`` by default, so every local address reaches
+    it. Registering the router as its own worker makes the inference
+    forwarding recurse into the router itself: ``/v1/completions`` is
+    forwarded to the router, which forwards it again, exhausting the
+    connection pool and the event loop (denial of service).
+    """
+    if not router_port:
+        return False
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if port != router_port:
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return False
+
+    local = _local_addresses()
+    loop = asyncio.get_running_loop()
+    addresses = await loop.run_in_executor(None, _resolve_addresses_sync, hostname, port)
+    if not addresses:
+        # Nothing to compare against, the health check will decide.
+        return False
+
+    for address in addresses:
+        if address in local:
+            return True
+        try:
+            if ipaddress.ip_address(address).is_loopback:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
@@ -641,7 +732,7 @@ def make_lifespan(worker_urls: list, policy_config):
     return lifespan
 
 
-def create_app(worker_urls, policy_config) -> FastAPI:
+def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
     app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config))
 
     @app.get("/health")
@@ -661,7 +752,38 @@ def create_app(worker_urls, policy_config) -> FastAPI:
         urls = body.get("urls")
         if not urls:
             return Response(content="Worker URL required. Provide 'url' query parameter", status_code=400)
-        _, _, msg = await app.router.add_workers(urls)
+
+        urls_list = [urls] if isinstance(urls, str) else list(urls)
+
+        # Bound the batch size: every registered worker is polled by the
+        # health monitor every 3 seconds, so an unbounded batch turns the
+        # registration endpoint into an outbound traffic amplifier.
+        if len(urls_list) > MAX_WORKER_URLS_PER_REQUEST:
+            return Response(
+                content=(f"Too many worker URLs: {len(urls_list)} (maximum is {MAX_WORKER_URLS_PER_REQUEST})"),
+                status_code=400,
+            )
+
+        # Reject the router itself as a worker. Registering it would make the
+        # inference forwarding recurse into the router and exhaust the
+        # connection pool and the event loop (denial of service).
+        for url in urls_list:
+            if await is_router_self_reference(url, router_port):
+                logger.warning("Rejected worker registration pointing at the router itself: %s", url)
+                return Response(
+                    content=f"Refusing to register the router itself as a worker: {url}",
+                    status_code=400,
+                )
+
+        # Normalise and de-duplicate so that the same worker cannot be
+        # registered several times under different spellings.
+        normalized: List[str] = []
+        for url in urls_list:
+            candidate = normalize_worker_url(url)
+            if candidate not in normalized:
+                normalized.append(candidate)
+
+        _, _, msg = await app.router.add_workers(normalized)
         return Response(content=msg)
 
     @app.get("/list_workers")
@@ -733,7 +855,11 @@ if __name__ == "__main__":
             timeout_secs=router_configuration.worker_startup_timeout_secs,
             interval_secs=router_configuration.worker_startup_check_interval,
         )
-    app = create_app(router_configuration.worker_urls, policy_config)
+    app = create_app(
+        router_configuration.worker_urls,
+        policy_config,
+        router_port=router_configuration.port,
+    )
     logging.info(f"Initializing router on {router_configuration.host}:{router_configuration.port}")
     logging.info(f"Initializing workers on {router_configuration.worker_urls}")
     logging.info(f"Policy Config: {router_configuration.policy}")
