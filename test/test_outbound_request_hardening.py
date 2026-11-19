@@ -46,6 +46,12 @@ class TestIsInternalAddress(unittest.TestCase):
     def test_garbage(self):
         self.assertFalse(_is_internal_address("not-an-ip"))
 
+    def test_reserved_ranges(self):
+        """The classifier must cover the same ranges as the URL blocklist."""
+        for address in ["100.64.0.1", "192.0.0.1", "198.18.0.1"]:
+            with self.subTest(address=address):
+                self.assertTrue(_is_internal_address(address))
+
 
 class TestIsSafeOutboundUrl(unittest.TestCase):
     def test_rejects_internal_target(self):

@@ -56,6 +56,17 @@ MAX_HEALTH_REDIRECTS = 3
 HEALTH_CHECK_TIMEOUT = aiohttp.ClientTimeout(total=5, sock_connect=3, sock_read=3)
 
 
+# Networks that ``ipaddress`` does not classify as private but that must never
+# be reached from a worker registration either. They are listed here as well
+# as in the worker URL blocklist, so that both checks cover the same set of
+# addresses.
+_EXTRA_BLOCKED_V4 = (
+    ipaddress.ip_network("100.64.0.0/10"),  # RFC 6598 shared address space (CGNAT)
+    ipaddress.ip_network("192.0.0.0/24"),  # RFC 6890 IETF protocol assignments
+    ipaddress.ip_network("198.18.0.0/15"),  # RFC 2544 benchmarking
+)
+
+
 def _is_internal_address(address: str) -> bool:
     """Return True when the address must not be contacted by the router."""
     try:
@@ -70,14 +81,20 @@ def _is_internal_address(address: str) -> bool:
         if embedded is not None:
             return _is_internal_address(str(embedded))
 
-    return (
+    if (
         parsed.is_loopback
         or parsed.is_link_local
         or parsed.is_private
         or parsed.is_reserved
         or parsed.is_multicast
         or parsed.is_unspecified
-    )
+    ):
+        return True
+
+    if isinstance(parsed, ipaddress.IPv4Address):
+        return any(parsed in network for network in _EXTRA_BLOCKED_V4)
+
+    return False
 
 
 def _resolve_addresses_sync(host: str, port: int) -> List[str]:
@@ -94,6 +111,12 @@ async def _is_safe_outbound_url(url: str) -> bool:
     The URL is resolved and every address it points at is checked. This is
     applied to every hop of a redirect chain, so that a redirect issued by a
     controlled endpoint cannot be used to reach the internal network.
+
+    Residual risk: the address that is validated here and the address that
+    the HTTP client connects to are resolved separately. An attacker with a
+    short DNS TTL can therefore still win the race between the validation and
+    the connection; pinning the validated address is the only way to close
+    that window completely.
     """
     try:
         parsed = urlparse(url)
