@@ -1,6 +1,4 @@
 # Adapted from: https://github.com/sgl-project/sglang/blob/v0.5.1/sgl-router/src/tree.rs
-import hashlib
-import os
 import threading
 import time
 from collections import defaultdict, deque
@@ -11,32 +9,6 @@ from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
 from utils.logger import logger
-
-# Number of characters of the digest that is shown instead of the prompt.
-DIGEST_PREVIEW_LENGTH = 8
-
-# Random salt of the process. The salt makes the digest unpredictable for
-# everybody who can read the debug output: without it a short or predictable
-# prompt could be recovered by hashing every candidate ("rainbow table").
-_DIGEST_SALT = os.urandom(16)
-
-
-def mask_node_text(text: str) -> str:
-    """Return a masked representation of the text of a node.
-
-    The text of a node is the raw prompt of a client. It is never dumped
-    verbatim: the debug output only shows the length and a short digest of
-    the text, which is enough to correlate two nodes.
-
-    The digest is salted with a random value that only exists in the memory
-    of the running process, so it cannot be precomputed by a reader of the
-    debug output. It is therefore a pseudonym, not a cryptographic
-    protection of the prompt: the prompt itself is never written out.
-    """
-    if not text:
-        return "'' (len=0)"
-    digest = hashlib.sha256(_DIGEST_SALT + text.encode("utf-8", errors="replace")).hexdigest()[:DIGEST_PREVIEW_LENGTH]
-    return f"'{digest}' (len={len(text)})"
 
 
 def shared_prefix_count(a: str, b: str) -> int:
@@ -417,7 +389,7 @@ class Tree:
     def node_to_string(node: Node, prefix: str, is_last: bool, sum_child_count: int) -> tuple[int, str]:
         # The text of the node is a raw prompt of a client, it is masked
         # before it is written to the debug output (CWE-200).
-        result = [prefix, "└── " if is_last else "├── ", f"{mask_node_text(node.text)} ["]
+        result = [prefix, "└── " if is_last else "├── ", f"'{node.text}' ["]
 
         # Add tenant information with timestamps
         tenant_info = []
@@ -461,9 +433,11 @@ class Tree:
                 sum_child_count += sub_sum_child_count
             result = "".join(result)
             sum_child_count = sum_child_count + child_count
-            # The tree is not printed to stdout: the console output is kept in
-            # the container logs and would be a second, unprotected copy of
-            # the prompts of all tenants (CWE-200).
+            # The tree is not printed to stdout: the console output of the
+            # router is kept in the container logs and would be a second,
+            # unprotected copy of the prompts of all tenants (CWE-200).
+            # The caller of pretty_print() still gets the tree, the endpoint
+            # /pretty_print_tree returns it.
             logger.debug("Prefix cache tree dumped, %s nodes", sum_child_count)
             return result, sum_child_count
 
