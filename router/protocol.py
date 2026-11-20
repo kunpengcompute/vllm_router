@@ -289,8 +289,6 @@ class RouterArgs(BaseModel):
     balance_rel_threshold: float = Field(1.0001, gt=1, lt=3)
     eviction_interval_secs: int = Field(60, ge=1, le=100)
     max_tree_size: int = Field(2**24, ge=2**15, le=2**26)
-    max_cache_depth: int = Field(64, ge=4, le=1024)
-    max_cache_text_length: int = Field(4096, ge=64, le=1048576)
     log_dir: str = Field("")
     verbose: bool = Field(False)
 

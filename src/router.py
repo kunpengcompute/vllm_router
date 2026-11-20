@@ -5,12 +5,13 @@ import threading
 import time
 from abc import ABC
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from threading import Thread
 from typing import Dict, List, Optional, Tuple
 
 from src.tree import Tree
+from utils.config import CapacityConfig
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
@@ -47,9 +48,10 @@ class CacheAwareConfig(PolicyConfig):
     balance_abs_threshold: int = 32
     balance_rel_threshold: float = 1.0001
     eviction_interval_secs: int = 60
-    max_tree_size: int = 2**24
-    max_cache_depth: int = 64
-    max_cache_text_length: int = 4096
+    # Every resource limit of the router lives in the capacity
+    # configuration, so that the tree, the request path and the eviction
+    # thread all agree on the same limits.
+    capacity: CapacityConfig = field(default_factory=CapacityConfig)
 
 
 class RouterType(Enum):
@@ -147,9 +149,11 @@ class CacheAwareRouter(RouterBase):
     4. eviction_interval_secs: (integer)
     Interval between LRU eviction cycles for the approximate trees.
 
-    5. max_tree_size: (integer)
-    Maximum nodes per tree. When exceeded, LRU leaf nodes are evicted
-    during the next eviction cycle.
+    5. capacity: (CapacityConfig)
+    Every resource limit of the router. The tree is bounded by the node
+    budget, the chain depth, the length of a stored text, the per tenant
+    character quota and the global character budget, the worker pool is
+    bounded by the worker limit.
     """
 
     tree: Tree
@@ -248,14 +252,12 @@ class RouteSelector:
             balance_rel_threshold = policy_config.balance_rel_threshold
 
             # 初始化树和队列
-            # The tree is bounded: max_tree_size caps the number of nodes,
-            # max_cache_depth the length of a chain and max_cache_text_length
-            # the number of characters stored per insertion (CWE-400).
-            tree = Tree(
-                max_nodes=policy_config.max_tree_size,
-                max_depth=policy_config.max_cache_depth,
-                max_text_length=policy_config.max_cache_text_length,
-            )
+            # The tree is bounded by the capacity configuration: the node
+            # budget caps the number of nodes, the depth the length of a
+            # chain, the text length the number of characters stored per
+            # insertion and the global budget the memory of the whole tree
+            # (CWE-400, CWE-770).
+            tree = Tree(capacity=policy_config.capacity)
             running_queue = {url: 0 for url in worker_urls}
             processed_queue = {url: 0 for url in worker_urls}
 
@@ -268,7 +270,11 @@ class RouteSelector:
                         break
 
                     try:
-                        tree.evict_tenant_by_size(policy_config.max_tree_size)
+                        # The per tenant quota and the global budget of the
+                        # tree. The per tenant quota alone can be bypassed by
+                        # registering many tenants (CWE-770).
+                        tree.evict_tenant_by_size(tree.max_tenant_chars)
+                        tree.evict_to_global_size(tree.max_total_chars)
                         logger.info(f"Processed Queue: {processed_queue}")
                         logger.info(f"Running Queue: {running_queue}")
                     except Exception as e:
