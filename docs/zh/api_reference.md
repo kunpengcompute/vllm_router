@@ -19,14 +19,18 @@
 ### 开启鉴权的迁移步骤
 
 1. 生成一个随机字符串作为令牌（建议不少于 16 个字符）：
+
    ```bash
    openssl rand -hex 16
    ```
+
 2. 通过环境变量注入（推荐，避免令牌出现在进程列表中）：
+
    ```bash
    export VLLM_ROUTER_ADMIN_TOKEN='<token>'
    export VLLM_ROUTER_API_TOKEN='<token>'
    ```
+
    也可使用命令行参数 `--admin-token` / `--api-token`（优先级高于环境变量）。
 3. 重启 router，管理面接口即开始校验令牌：未携带令牌或令牌错误的请求返回 401。
 4. 客户端需在请求中携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`。

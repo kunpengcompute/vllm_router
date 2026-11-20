@@ -19,14 +19,18 @@ A token should be at least 16 characters long, a shorter one is reported with a 
 ### Migration: enabling the authentication
 
 1. Generate a random token (at least 16 characters are recommended):
+
    ```bash
    openssl rand -hex 16
    ```
+
 2. Inject it through the environment (recommended, the token does not show up in the process list):
+
    ```bash
    export VLLM_ROUTER_ADMIN_TOKEN='<token>'
    export VLLM_ROUTER_API_TOKEN='<token>'
    ```
+
    The command line options `--admin-token` / `--api-token` are an alternative and win over the environment variables.
 3. Restart the router. The management endpoints now require the token, a request without the token or with a wrong one is answered with 401.
 4. The clients have to send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
