@@ -147,9 +147,7 @@ class CapacityConfig:
             max_tree_total_size=value("max_tree_total_size", MAX_TREE_TOTAL_SIZE_ENV, cls.max_tree_total_size),
             max_tree_nodes=value("max_tree_nodes", MAX_TREE_NODES_ENV, cls.max_tree_nodes),
             max_cache_depth=value("max_cache_depth", MAX_CACHE_DEPTH_ENV, cls.max_cache_depth),
-            max_cache_text_length=value(
-                "max_cache_text_length", MAX_CACHE_TEXT_LENGTH_ENV, cls.max_cache_text_length
-            ),
+            max_cache_text_length=value("max_cache_text_length", MAX_CACHE_TEXT_LENGTH_ENV, cls.max_cache_text_length),
             max_workers=value("max_workers", MAX_WORKERS_ENV, cls.max_workers),
         )
 

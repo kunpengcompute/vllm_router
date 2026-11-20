@@ -474,6 +474,7 @@ class TestWorkerQuota(unittest.TestCase):
         added. A request that carried many URLs therefore registered all of
         them and the number of workers grew far beyond the limit.
         """
+
         async def scenario():
             router = self._router(CapacityConfig(max_workers=3), ["http://a:8001"])
 
