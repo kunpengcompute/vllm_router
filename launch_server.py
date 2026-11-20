@@ -47,12 +47,40 @@ from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
 # Maximum number of worker URLs accepted in a single registration request.
-# Every registered URL is polled by the health monitor every 3 seconds, so an
-# unbounded batch size turns the registration endpoint into an amplifier for
-# both outbound traffic and the worker pool.
-MAX_WORKER_URLS_PER_REQUEST = 64
+#
+# Every registered worker is polled by the health monitor, so an unbounded
+# batch size turns the registration endpoint into an amplifier for the
+# outbound traffic and for the worker pool.
+#
+# The limit is configurable so that it can be adapted to a deployment, but the
+# default keeps the limit that the request model already enforced (WorkUrls
+# accepts at most 1000 URLs per request). Lowering the default would be an
+# API compatibility change and does not belong into a fix for a single
+# vulnerability.
+MAX_WORKER_URLS_PER_REQUEST_ENV = "VLLM_ROUTER_MAX_WORKER_URLS_PER_REQUEST"
+MAX_WORKER_URLS_PER_REQUEST = 1000
 
 _LOCAL_ADDRESSES_CACHE: Set[str] | None = None
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive integer from the environment.
+
+    An invalid or non positive value falls back to the default: a
+    misconfigured environment variable must not take the router down.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning("Ignoring invalid value %r for %s, using %s", raw, name, default)
+        return default
+    if value <= 0:
+        logger.warning("Ignoring non positive value %r for %s, using %s", raw, name, default)
+        return default
+    return value
 
 
 def _local_addresses() -> Set[str]:
@@ -88,8 +116,66 @@ def normalize_worker_url(url: str) -> str:
     Without this, ``http://worker:8001`` and ``http://worker:8001/`` are two
     different keys in the worker pool, and the second one produces malformed
     request paths such as ``http://worker:8001//health``.
+
+    The registration path and the removal path use this very same function,
+    so that a worker that was registered as ``http://worker:8001/`` can also
+    be removed with that spelling.
     """
     return url.strip().rstrip("/")
+
+
+def normalize_worker_urls(urls: List[str]) -> List[str]:
+    """Normalise and de-duplicate a list of worker URLs, keeping the order."""
+    normalized: List[str] = []
+    for url in urls:
+        candidate = normalize_worker_url(url)
+        if candidate and candidate not in normalized:
+            normalized.append(candidate)
+    return normalized
+
+
+def parse_endpoint(url: str):
+    """Return ``(hostname, port)`` of a URL, or ``None`` when it is malformed.
+
+    ``urlparse`` raises a ValueError for an unterminated IPv6 literal, and
+    the ``port`` and ``hostname`` properties raise a ValueError for a non
+    numeric or an out of range port. Every access has to be guarded: a
+    malformed worker URL must be rejected, it must not turn the registration
+    endpoint into an internal server error.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if not hostname:
+        return None
+
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    return hostname.lower(), port
+
+
+def _is_local_address(address: str) -> bool:
+    """Return True when the address points at this very host."""
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+
+    # "::ffff:127.0.0.1" is the IPv4 loopback in its IPv6 notation.
+    mapped = getattr(parsed, "ipv4_mapped", None)
+    if mapped is not None:
+        parsed = mapped
+
+    # The unspecified address ("0.0.0.0", "::") reaches every local socket.
+    if parsed.is_loopback or parsed.is_unspecified:
+        return True
+
+    return address in _local_addresses()
 
 
 async def is_router_self_reference(url: str, router_port: int) -> bool:
@@ -104,35 +190,23 @@ async def is_router_self_reference(url: str, router_port: int) -> bool:
     if not router_port:
         return False
 
-    try:
-        parsed = urlparse(url)
-    except ValueError:
+    endpoint = parse_endpoint(url)
+    if endpoint is None:
+        # A malformed URL is not a self reference. The request model rejects
+        # it later on, this check must not raise.
         return False
 
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    hostname, port = endpoint
     if port != router_port:
         return False
 
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
-        return False
-
-    local = _local_addresses()
     loop = asyncio.get_running_loop()
     addresses = await loop.run_in_executor(None, _resolve_addresses_sync, hostname, port)
     if not addresses:
         # Nothing to compare against, the health check will decide.
         return False
 
-    for address in addresses:
-        if address in local:
-            return True
-        try:
-            if ipaddress.ip_address(address).is_loopback:
-                return True
-        except ValueError:
-            continue
-    return False
+    return any(_is_local_address(address) for address in addresses)
 
 
 class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
@@ -446,12 +520,7 @@ class Router:
         # workers that are passed on the command line go through the same
         # path, and "http://worker:8001" and "http://worker:8001/" have to
         # be the same worker in the pool.
-        normalized_urls: List[str] = []
-        for url in urls:
-            candidate = normalize_worker_url(url)
-            if candidate and candidate not in normalized_urls:
-                normalized_urls.append(candidate)
-        urls = normalized_urls
+        urls = normalize_worker_urls(urls)
 
         # 分离已存在和新的 URL
         existing_urls = []
@@ -516,6 +585,11 @@ class Router:
     def remove_workers(self, urls: str | List[str]) -> str:
         if isinstance(urls, str):
             urls = [urls]
+
+        # The same normalisation as in the registration path: a worker that
+        # was registered as "http://worker:8001/" is found again when it is
+        # removed with that spelling.
+        urls = normalize_worker_urls(urls)
 
         delete_urls_succeed = []
         delete_urls_failed = []
@@ -768,10 +842,16 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
 
         # Bound the batch size: every registered worker is polled by the
         # health monitor every 3 seconds, so an unbounded batch turns the
-        # registration endpoint into an outbound traffic amplifier.
-        if len(urls_list) > MAX_WORKER_URLS_PER_REQUEST:
+        # registration endpoint into an outbound traffic amplifier. The limit
+        # is configurable, its default keeps the limit that the request model
+        # already enforced.
+        max_urls = _env_int(MAX_WORKER_URLS_PER_REQUEST_ENV, MAX_WORKER_URLS_PER_REQUEST)
+        if len(urls_list) > max_urls:
             return Response(
-                content=(f"Too many worker URLs: {len(urls_list)} (maximum is {MAX_WORKER_URLS_PER_REQUEST})"),
+                content=(
+                    f"Too many worker URLs: {len(urls_list)} (maximum is {max_urls}, "
+                    f"configurable with {MAX_WORKER_URLS_PER_REQUEST_ENV})"
+                ),
                 status_code=400,
             )
 
@@ -790,11 +870,7 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
         # registered several times under different spellings. The same
         # normalisation happens in Router.add_workers, this is only the
         # first of the two.
-        normalized: List[str] = []
-        for url in urls_list:
-            candidate = normalize_worker_url(url)
-            if candidate not in normalized:
-                normalized.append(candidate)
+        normalized = normalize_worker_urls(urls_list)
 
         _, _, msg = await app.router.add_workers(normalized)
         return Response(content=msg)
@@ -811,7 +887,11 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
         urls = body.get("urls")
         if not urls:
             return Response(status_code=400)
-        msg = app.router.remove_workers(urls)
+        urls_list = [urls] if isinstance(urls, str) else list(urls)
+        # The removal path normalises with the same function as the
+        # registration path, so that "http://worker:8001/" and
+        # "http://worker:8001" refer to the same worker.
+        msg = app.router.remove_workers(normalize_worker_urls(urls_list))
         return Response(content=msg)
 
     @app.get("/pretty_print_tree")
