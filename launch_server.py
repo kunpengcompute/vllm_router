@@ -15,17 +15,14 @@
 import argparse
 import asyncio
 import copy
-import ipaddress
 import json
 import logging
 import os
-import socket
 import time
 from asyncio import Semaphore
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from typing import Dict, List, Tuple
-from urllib.parse import urljoin, urlparse
 
 import aiohttp
 from fastapi import FastAPI, HTTPException
@@ -46,97 +43,10 @@ from src.router import (
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
-# Maximum number of redirects the health check follows. Every hop is validated
-# again, a redirect that points at an internal address is refused.
-MAX_HEALTH_REDIRECTS = 3
-
 # Timeout of a single health check request. Without an explicit bound a slow
 # target can hold an outbound connection (and a slot of the health check
 # semaphore) for the default aiohttp timeout of five minutes.
 HEALTH_CHECK_TIMEOUT = aiohttp.ClientTimeout(total=5, sock_connect=3, sock_read=3)
-
-
-# Networks that ``ipaddress`` does not classify as private but that must never
-# be reached from a worker registration either. They are listed here as well
-# as in the worker URL blocklist, so that both checks cover the same set of
-# addresses.
-_EXTRA_BLOCKED_V4 = (
-    ipaddress.ip_network("100.64.0.0/10"),  # RFC 6598 shared address space (CGNAT)
-    ipaddress.ip_network("192.0.0.0/24"),  # RFC 6890 IETF protocol assignments
-    ipaddress.ip_network("198.18.0.0/15"),  # RFC 2544 benchmarking
-)
-
-
-def _is_internal_address(address: str) -> bool:
-    """Return True when the address must not be contacted by the router."""
-    try:
-        parsed = ipaddress.ip_address(address)
-    except ValueError:
-        return False
-
-    if isinstance(parsed, ipaddress.IPv6Address):
-        embedded = parsed.ipv4_mapped or parsed.sixtofour
-        if embedded is None and parsed.teredo is not None:
-            embedded = parsed.teredo[1]
-        if embedded is not None:
-            return _is_internal_address(str(embedded))
-
-    if (
-        parsed.is_loopback
-        or parsed.is_link_local
-        or parsed.is_private
-        or parsed.is_reserved
-        or parsed.is_multicast
-        or parsed.is_unspecified
-    ):
-        return True
-
-    if isinstance(parsed, ipaddress.IPv4Address):
-        return any(parsed in network for network in _EXTRA_BLOCKED_V4)
-
-    return False
-
-
-def _resolve_addresses_sync(host: str, port: int) -> List[str]:
-    try:
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return []
-    return [info[4][0] for info in infos if info[4] and info[4][0]]
-
-
-async def _is_safe_outbound_url(url: str) -> bool:
-    """Return True when the router may contact the given URL.
-
-    The URL is resolved and every address it points at is checked. This is
-    applied to every hop of a redirect chain, so that a redirect issued by a
-    controlled endpoint cannot be used to reach the internal network.
-
-    Residual risk: the address that is validated here and the address that
-    the HTTP client connects to are resolved separately. An attacker with a
-    short DNS TTL can therefore still win the race between the validation and
-    the connection; pinning the validated address is the only way to close
-    that window completely.
-    """
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return False
-
-    host = (parsed.hostname or "").lower()
-    if not host:
-        return False
-    if parsed.scheme not in ("http", "https"):
-        return False
-
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    loop = asyncio.get_running_loop()
-    addresses = await loop.run_in_executor(None, _resolve_addresses_sync, host, port)
-    if not addresses:
-        # The name does not resolve, the request itself will fail.
-        return True
-
-    return not any(_is_internal_address(address) for address in addresses)
 
 
 class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
@@ -324,10 +234,7 @@ class BackendService:
             return False
 
         try:
-            # Redirects are not followed: a redirect would let a controlled
-            # endpoint steer the periodic health probe into the internal
-            # network (SSRF).
-            async with session.get(f"{self.base_url}/health", allow_redirects=False) as resp:
+            async with session.get(f"{self.base_url}/health") as resp:
                 if resp.status == 200:
                     return True
                 return False
@@ -394,37 +301,6 @@ class Router:
             logger.warning("Need urls")
 
     @staticmethod
-    async def _health_request(session: aiohttp.ClientSession, url: str) -> int:
-        """Perform a single health check request.
-
-        Redirects are not followed automatically: every hop is validated again
-        and a hop that points at an internal address is refused. Otherwise a
-        controlled endpoint could answer with a redirect and steer the
-        router's outbound traffic into the internal network (SSRF).
-
-        Returns the HTTP status code of the final response, or -1 when the
-        request was refused.
-        """
-        current_url = url
-        for _ in range(MAX_HEALTH_REDIRECTS + 1):
-            async with session.get(current_url, allow_redirects=False) as resp:
-                if resp.status not in (301, 302, 303, 307, 308):
-                    return resp.status
-
-                location = resp.headers.get("Location")
-                if not location:
-                    return resp.status
-
-                target = urljoin(current_url, location)
-                if not await _is_safe_outbound_url(target):
-                    logger.warning(f"Blocked health check redirect to an internal target: {target}")
-                    return -1
-                current_url = target
-
-        logger.warning(f"Health check exceeded {MAX_HEALTH_REDIRECTS} redirects for {url}")
-        return -1
-
-    @staticmethod
     async def wait_for_healthy_worker(worker_url: str, timeout_secs: int, interval_secs: int) -> bool:
         """
         Wait worker responds to health check
@@ -455,12 +331,12 @@ class Router:
 
                 health_url = f"{worker_url}/health"
                 try:
-                    status = await Router._health_request(client, health_url)
-                    if status != 200:
-                        status_msg = f"Worker health check failed with status {status}"
-                        logger.info(status_msg)
-                        is_healthy = False
-                        unhealthy_worker = status_msg
+                    async with client.get(health_url) as resp:
+                        if resp.status != 200:
+                            status_msg = f"Worker health check failed with status {resp.status}"
+                            logger.info(status_msg)
+                            is_healthy = False
+                            unhealthy_worker = status_msg
                 except aiohttp.client_exceptions.ClientConnectorError as e:
                     conn_msg = f"Worker connection error: {str(e)}"
                     logger.info(conn_msg)
@@ -619,7 +495,7 @@ class Router:
             if api != "/health":
                 headers = {"Content-Type": "application/json"}
                 async with self.session.post(
-                    target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=False
+                    target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     # 读取响应内容
                     body = await response.read()
@@ -650,7 +526,7 @@ class Router:
         url = f"{worker_url}/{api}"
 
         if not is_stream:
-            async with self.session.post(url, json=body, headers=headers, allow_redirects=False) as response:
+            async with self.session.post(url, json=body, headers=headers) as response:
                 status = response.status
                 content_type = response.headers.get(content_type, "")
                 full_body = await response.read()
@@ -662,7 +538,7 @@ class Router:
             async def stream_gen():
                 # 流式响应需要在内部定义会话
                 async with aiohttp.ClientSession(timeout=self.session_timeout) as session:
-                    async with session.post(url, json=body, allow_redirects=False) as response:
+                    async with session.post(url, json=body) as response:
                         done_marker = b"data: [DONE]"
                         async for chunk in response.content.iter_chunked(64 * 1024):
                             yield chunk
@@ -675,7 +551,7 @@ class Router:
 
             async def stream_gen():
                 async with aiohttp.ClientSession(timeout=self.session_timeout) as session:
-                    async with session.post(url, json=body, allow_redirects=False) as response:
+                    async with session.post(url, json=body) as response:
                         async for chunk in response.content.iter_chunked(64 * 1024):
                             yield chunk
 
