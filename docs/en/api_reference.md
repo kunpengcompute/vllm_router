@@ -6,17 +6,32 @@ This API is the request parameter specification for the text completion service.
 
 ## Authentication
 
-The management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/pretty_print_tree`) and the data plane endpoint (`/v1/completions`) are served on the same port. The defaults are:
+The management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/pretty_print_tree`) and the data plane endpoint (`/v1/completions`) are served on the same port. The authentication is **opt in**, the default does not change the behaviour before the upgrade:
 
 | Endpoint | Default auth | Description |
 |----------|--------------|-------------|
 | `GET /health` | none | Liveness probe, always public. |
-| Management endpoints | **enforced** | Without `--admin-token` (or the `VLLM_ROUTER_ADMIN_TOKEN` environment variable) every request is rejected with 403. Once configured, the caller must send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`, otherwise 401 is returned. |
+| Management endpoints | **optional (off by default)** | Without `--admin-token` (or the `VLLM_ROUTER_ADMIN_TOKEN` environment variable) the endpoints are not authenticated, exactly like before the upgrade. Once configured, the caller must send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`, otherwise 401 is returned. |
 | `POST /v1/completions` | optional | When `--api-token` (or `VLLM_ROUTER_API_TOKEN`) is configured the token is required, otherwise 401 is returned. Without the option the endpoint is not authenticated. |
 
-Tokens must be at least 16 characters long. Failed authentication attempts and every management operation are written to the audit log.
+A token should be at least 16 characters long, a shorter one is reported with a warning but is not rejected. Failed authentication attempts and every management operation are written to the audit log.
 
-> `--allow-anonymous-admin` restores anonymous management access. Use it only on trusted internal / loopback deployments.
+### Migration: enabling the authentication
+
+1. Generate a random token (at least 16 characters are recommended):
+   ```bash
+   openssl rand -hex 16
+   ```
+2. Inject it through the environment (recommended, the token does not show up in the process list):
+   ```bash
+   export VLLM_ROUTER_ADMIN_TOKEN='<token>'
+   export VLLM_ROUTER_API_TOKEN='<token>'
+   ```
+   The command line options `--admin-token` / `--api-token` are an alternative and win over the environment variables.
+3. Restart the router. The management endpoints now require the token, a request without the token or with a wrong one is answered with 401.
+4. The clients have to send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
+
+> The switch does not change the path or the payload of any endpoint. Without a token the clients need no change at all. With a token the existing clients receive a 401, so step 4 has to be finished before the restart.
 
 ## POST /add_workers
   
@@ -83,9 +98,8 @@ This API defines the startup configuration parameters for the request routing se
 
   | Parameter | Type | Default Value | Description | Verification Rule |
   |-----------|------|---------------|-------------|-------------------|
-  | admin_token | str | "" | Shared secret required by the management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/pretty_print_tree`). May also be supplied via the `VLLM_ROUTER_ADMIN_TOKEN` environment variable. Without it the management endpoints reject every request. | When set, at least 16 characters and no leading/trailing whitespace. |
-  | api_token | str | "" | Optional shared secret for the inference endpoint `/v1/completions`. May also be supplied via the `VLLM_ROUTER_API_TOKEN` environment variable. | When set, at least 16 characters and no leading/trailing whitespace. |
-  | allow_anonymous_admin | bool | False | Allow unauthenticated access to the management endpoints. Recommended only for trusted internal / loopback deployments. | - |
+  | admin_token | str | "" | Shared secret required by the management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/pretty_print_tree`). May also be supplied via the `VLLM_ROUTER_ADMIN_TOKEN` environment variable. **Without it the management endpoints are not authenticated**, exactly like before the upgrade. | At least 16 characters are recommended, a shorter one is reported with a warning but not rejected. Leading/trailing whitespace is removed. |
+  | api_token | str | "" | Optional shared secret for the inference endpoint `/v1/completions`. May also be supplied via the `VLLM_ROUTER_API_TOKEN` environment variable. Without it the endpoint is not authenticated. | At least 16 characters are recommended, a shorter one is reported with a warning but not rejected. Leading/trailing whitespace is removed. |
 
 - Logging and debugging
 

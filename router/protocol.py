@@ -291,21 +291,6 @@ class RouterArgs(BaseModel):
     max_tree_size: int = Field(2**24, ge=2**15, le=2**26)
     log_dir: str = Field("")
     verbose: bool = Field(False)
-    admin_token: str = Field("")
-    api_token: str = Field("")
-    allow_anonymous_admin: bool = Field(False)
-
-    @field_validator("admin_token", "api_token")
-    @classmethod
-    def validate_token(cls, v: str) -> str:
-        """Reject weak or malformed tokens before they are used for auth."""
-        if not v:
-            return ""
-        if len(v) < 16:
-            raise ValueError("Token must be at least 16 characters long")
-        if v.strip() != v:
-            raise ValueError("Token must not contain leading or trailing whitespace")
-        return v
 
     @field_validator("host")
     @classmethod

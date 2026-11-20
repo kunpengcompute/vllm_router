@@ -174,17 +174,21 @@ Examples:
     )
 
     # Authentication / authorization
+    #
+    # The authentication is opt in: the endpoints are not protected as long
+    # as no token is configured. The options are not part of the request
+    # model, they are read from the parsed arguments directly.
     parser.add_argument(
         "--admin-token",
         "--admin_token",
         dest="admin_token",
         type=str,
-        default="",
+        default=argparse.SUPPRESS,
         help=(
             "Shared secret required by the management endpoints "
             "(/add_workers, /remove_workers, /list_workers, /pretty_print_tree). "
             f"May also be provided via the {ADMIN_TOKEN_ENV} environment variable. "
-            "When unset the management endpoints are disabled and reject every request."
+            "The management endpoints are not protected when no token is configured."
         ),
     )
     parser.add_argument(
@@ -192,20 +196,10 @@ Examples:
         "--api_token",
         dest="api_token",
         type=str,
-        default="",
+        default=argparse.SUPPRESS,
         help=(
             "Optional shared secret required by the inference endpoint /v1/completions. "
             f"May also be provided via the {API_TOKEN_ENV} environment variable."
-        ),
-    )
-    parser.add_argument(
-        "--allow-anonymous-admin",
-        "--allow_anonymous_admin",
-        dest="allow_anonymous_admin",
-        action="store_true",
-        help=(
-            "Allow unauthenticated access to the management endpoints. "
-            "Insecure, only intended for trusted/loopback deployments."
         ),
     )
 
@@ -695,26 +689,21 @@ def create_app(
     policy_config,
     admin_token: str = "",
     api_token: str = "",
-    allow_anonymous_admin: bool = False,
 ) -> FastAPI:
     app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config))
 
     # Authentication state for the management / data planes.
     app.state.admin_token = resolve_token(admin_token, ADMIN_TOKEN_ENV)
     app.state.api_token = resolve_token(api_token, API_TOKEN_ENV)
-    app.state.allow_anonymous_admin = allow_anonymous_admin
 
-    if not app.state.admin_token and not allow_anonymous_admin:
+    if app.state.admin_token:
+        logger.info("The management endpoints require the admin token.")
+    else:
         logger.warning(
             "No admin token configured: the management endpoints "
             "(/add_workers, /remove_workers, /list_workers, /pretty_print_tree) "
-            "will reject every request. Start with --admin-token or set %s.",
+            "are not protected. Set %s or --admin-token to require a token.",
             ADMIN_TOKEN_ENV,
-        )
-    elif allow_anonymous_admin:
-        logger.warning(
-            "Anonymous access to the management endpoints is enabled (--allow-anonymous-admin). "
-            "This exposes the routing topology to anyone who can reach this port."
         )
 
     @app.get("/health")
@@ -831,9 +820,8 @@ if __name__ == "__main__":
     app = create_app(
         router_configuration.worker_urls,
         policy_config,
-        admin_token=router_configuration.admin_token,
-        api_token=router_configuration.api_token,
-        allow_anonymous_admin=router_configuration.allow_anonymous_admin,
+        admin_token=vars(router_args).get("admin_token", ""),
+        api_token=vars(router_args).get("api_token", ""),
     )
     logging.info(f"Initializing router on {router_configuration.host}:{router_configuration.port}")
     logging.info(f"Initializing workers on {router_configuration.worker_urls}")

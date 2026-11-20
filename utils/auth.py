@@ -4,15 +4,23 @@ The router serves both planes on a single listening port:
 
 * the **management plane** (``/add_workers``, ``/remove_workers``,
   ``/list_workers``, ``/pretty_print_tree``) mutates the routing topology and
-  dumps internal state.  It must never be reachable anonymously, therefore it
-  *fails closed*: requests are rejected unless an admin token is configured
-  (or the operator explicitly opts out with ``--allow-anonymous-admin``).
-* the **data plane** (``/v1/completions``) carries the inference traffic.  It
-  supports optional token authentication via ``--api-token``.
+  dumps internal state.
+* the **data plane** (``/v1/completions``) carries the inference traffic.
 
-Tokens can be supplied either through the command line or through the
-environment (``VLLM_ROUTER_ADMIN_TOKEN`` / ``VLLM_ROUTER_API_TOKEN``), so that
-secrets do not have to appear in the process list.
+The authentication is **opt in**. When no token is configured the endpoints
+behave exactly like they did before, they are simply not protected. When a
+token is configured, every request that does not carry it is rejected.
+
+The switch is deliberately explicit: a router that is deployed without a
+token keeps working, and a router that is deployed with one cannot be
+reached without it. Failing closed by default would break every existing
+deployment, because the management endpoints were reachable without a token
+before.
+
+Tokens can be supplied either through the command line (``--admin-token`` /
+``--api-token``) or through the environment (``VLLM_ROUTER_ADMIN_TOKEN`` /
+``VLLM_ROUTER_API_TOKEN``), so that secrets do not have to appear in the
+process list.
 """
 
 import hmac
@@ -23,6 +31,10 @@ from fastapi import HTTPException, Request
 
 ADMIN_TOKEN_ENV = "VLLM_ROUTER_ADMIN_TOKEN"
 API_TOKEN_ENV = "VLLM_ROUTER_API_TOKEN"
+
+# A token that is shorter than this is easy to guess. The router only warns
+# about it, it does not reject the token: the operator decides.
+MIN_TOKEN_LENGTH = 16
 
 logger = logging.getLogger("router")
 
@@ -39,9 +51,18 @@ def rejected_request_count(plane: str = "admin") -> int:
 
 def resolve_token(explicit: str, env_name: str) -> str:
     """Return the configured token, falling back to the environment variable."""
-    if explicit:
-        return explicit.strip()
-    return os.environ.get(env_name, "").strip()
+    token = (explicit or "").strip()
+    if not token:
+        token = os.environ.get(env_name, "").strip()
+
+    if token and len(token) < MIN_TOKEN_LENGTH:
+        logger.warning(
+            "The token of %s is shorter than %s characters, it is easy to guess",
+            env_name,
+            MIN_TOKEN_LENGTH,
+        )
+
+    return token
 
 
 def extract_token(request: Request) -> str:
@@ -82,20 +103,16 @@ def _client_host(request: Request) -> str:
 
 
 def require_admin(request: Request) -> str:
-    """FastAPI dependency that guards the management plane (CWE-862)."""
-    if getattr(request.app.state, "allow_anonymous_admin", False):
-        return "anonymous"
+    """FastAPI dependency that guards the management plane (CWE-862).
 
+    The dependency only rejects a request when an admin token is configured.
+    Without a token the management plane is not protected, exactly like it
+    was before this dependency existed.
+    """
     expected = getattr(request.app.state, "admin_token", "")
     if not expected:
-        _REJECTED_REQUESTS["admin"] += 1
-        logger.error(
-            "Rejected management request %s %s: no admin token is configured (start with --admin-token or set %s)",
-            request.method,
-            request.url.path,
-            ADMIN_TOKEN_ENV,
-        )
-        raise HTTPException(status_code=403, detail="Management API is disabled because no admin token is configured")
+        # The protection is switched off, there is no token to check.
+        return "anonymous"
 
     provided = extract_token(request)
     if not token_matches(provided, expected):

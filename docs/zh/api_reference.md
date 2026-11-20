@@ -6,17 +6,32 @@
 
 ## 鉴权说明
 
-管理面接口（`/add_workers`、`/remove_workers`、`/list_workers`、`/pretty_print_tree`）与数据面接口（`/v1/completions`）监听同一端口，默认行为如下：
+管理面接口（`/add_workers`、`/remove_workers`、`/list_workers`、`/pretty_print_tree`）与数据面接口（`/v1/completions`）监听同一端口。鉴权为**可选开启**，默认不改变升级前的行为：
 
 | 接口 | 默认鉴权 | 说明 |
 |------|----------|------|
 | `GET /health` | 无 | 存活探测，始终公开。 |
-| 管理面接口 | **强制** | 未配置 `--admin-token`（或环境变量 `VLLM_ROUTER_ADMIN_TOKEN`）时一律返回 403；配置后需携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`，否则返回 401。 |
+| 管理面接口 | **可选（默认关闭）** | 未配置 `--admin-token`（或环境变量 `VLLM_ROUTER_ADMIN_TOKEN`）时不鉴权，与升级前行为一致；配置后需携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`，否则返回 401。 |
 | `POST /v1/completions` | 可选 | 配置 `--api-token`（或环境变量 `VLLM_ROUTER_API_TOKEN`）后需携带令牌，否则返回 401；未配置时不鉴权。 |
 
-令牌长度不得少于 16 个字符。管理面鉴权失败与所有管理操作均会记录审计日志。
+令牌长度建议不少于 16 个字符，短于该长度时 router 会打印告警但不会拒绝该令牌。管理面鉴权失败与所有管理操作均会记录审计日志。
 
-> 如需恢复匿名访问管理面（仅建议在可信内网/回环部署下使用），可显式传入 `--allow-anonymous-admin`。
+### 开启鉴权的迁移步骤
+
+1. 生成一个随机字符串作为令牌（建议不少于 16 个字符）：
+   ```bash
+   openssl rand -hex 16
+   ```
+2. 通过环境变量注入（推荐，避免令牌出现在进程列表中）：
+   ```bash
+   export VLLM_ROUTER_ADMIN_TOKEN='<token>'
+   export VLLM_ROUTER_API_TOKEN='<token>'
+   ```
+   也可使用命令行参数 `--admin-token` / `--api-token`（优先级高于环境变量）。
+3. 重启 router，管理面接口即开始校验令牌：未携带令牌或令牌错误的请求返回 401。
+4. 客户端需在请求中携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`。
+
+> 鉴权开关不改变任何接口的路径与报文格式。未配置令牌时客户端无需任何改动；已配置令牌后，未携带令牌的既有客户端会收到 401，请先完成第 4 步再重启。
 
 ## POST /add_workers
   
@@ -83,9 +98,8 @@
 
   | 参数名 | 类型 | 默认值 | 说明 | 校验规则 |
   | ------ | ---- | ------ | ---- | -------- |
-  | admin_token | str | "" | 管理面接口（`/add_workers`、`/remove_workers`、`/list_workers`、`/pretty_print_tree`）所需的共享密钥。也可用环境变量 `VLLM_ROUTER_ADMIN_TOKEN` 提供。未配置时管理面接口一律拒绝。 | 非空时长度不得少于 16 个字符，且首尾不得有空白。 |
-  | api_token | str | "" | 推理接口 `/v1/completions` 的可选共享密钥。也可用环境变量 `VLLM_ROUTER_API_TOKEN` 提供。未配置时该接口不鉴权。 | 非空时长度不得少于 16 个字符，且首尾不得有空白。 |
-  | allow_anonymous_admin | bool | False | 是否允许匿名访问管理面接口。仅建议在可信内网/回环部署下使用。 | - |
+  | admin_token | str | "" | 管理面接口（`/add_workers`、`/remove_workers`、`/list_workers`、`/pretty_print_tree`）所需的共享密钥。也可用环境变量 `VLLM_ROUTER_ADMIN_TOKEN` 提供。**未配置时管理面接口不鉴权**，与升级前行为一致。 | 建议不少于 16 个字符，短于该长度时打印告警但不拒绝。首尾空白会被去除。 |
+  | api_token | str | "" | 推理接口 `/v1/completions` 的可选共享密钥。也可用环境变量 `VLLM_ROUTER_API_TOKEN` 提供。未配置时该接口不鉴权。 | 建议不少于 16 个字符，短于该长度时打印告警但不拒绝。首尾空白会被去除。 |
 
 - 日志与调试
 
