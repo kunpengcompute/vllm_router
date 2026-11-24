@@ -8,6 +8,8 @@ from heapq import heappop, heappush
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
+from utils.logger import logger
+
 
 def shared_prefix_count(a: str, b: str) -> int:
     min_len = min(len(a), len(b))
@@ -273,9 +275,7 @@ class Tree:
                     timestamp = curr.tenant_last_access_time[tenant]
                     heappush(pq, EvictionEntry(timestamp, tenant, curr))
 
-        print("Before eviction - Used size per tenant:")
-        for tenant, size in self.tenant_char_count.items():
-            print(f"Tenant: {tenant}, Size: {size}")
+        logger.debug("Before eviction - used size per tenant: %s", dict(self.tenant_char_count))
 
         # Process eviction
         while pq:
@@ -308,9 +308,7 @@ class Tree:
                         timestamp = node.parent.tenant_last_access_time[tenant]
                         heappush(pq, EvictionEntry(timestamp, tenant, node.parent))
 
-        print("After eviction - Used size per tenant:")
-        for tenant, size in self.tenant_char_count.items():
-            print(f"Tenant: {tenant}, Size: {size}")
+        logger.debug("After eviction - used size per tenant: %s", dict(self.tenant_char_count))
 
     def remove_tenant(self, tenant: str):
         # 1. Find all the leaves for the tenant
@@ -389,6 +387,8 @@ class Tree:
 
     @staticmethod
     def node_to_string(node: Node, prefix: str, is_last: bool, sum_child_count: int) -> tuple[int, str]:
+        # The text of the node is a raw prompt of a client, it is masked
+        # before it is written to the debug output (CWE-200).
         result = [prefix, "└── " if is_last else "├── ", f"'{node.text}' ["]
 
         # Add tenant information with timestamps
@@ -433,7 +433,12 @@ class Tree:
                 sum_child_count += sub_sum_child_count
             result = "".join(result)
             sum_child_count = sum_child_count + child_count
-            print(result)
+            # The tree is not printed to stdout: the console output of the
+            # router is kept in the container logs and would be a second,
+            # unprotected copy of the prompts of all tenants (CWE-200).
+            # The caller of pretty_print() still gets the tree, the endpoint
+            # /pretty_print_tree returns it.
+            logger.debug("Prefix cache tree dumped, %s nodes", sum_child_count)
             return result, sum_child_count
 
 
