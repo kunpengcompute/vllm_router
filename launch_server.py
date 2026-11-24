@@ -1,4 +1,4 @@
-#  Copyright 2025 Huawei Technologies Co., Ltd.
+#  Copyright (c) 2026 Huawei Technologies Co., Ltd.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import time
 from asyncio import Semaphore
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
@@ -43,9 +43,21 @@ from src.router import (
     RoundRobinRouter,
     RouteSelector,
 )
+from utils.auth import (
+    ADMIN_TOKEN_ENV,
+    API_TOKEN_ENV,
+    require_admin,
+    require_api_token,
+    resolve_token,
+)
 from utils.config import CapacityConfig
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
+
+# Timeout of a single health check request. Without an explicit bound a slow
+# target can hold an outbound connection (and a slot of the health check
+# semaphore) for the default aiohttp timeout of five minutes.
+HEALTH_CHECK_TIMEOUT = aiohttp.ClientTimeout(total=5, sock_connect=3, sock_read=3)
 
 # Maximum number of worker URLs accepted in a single registration request.
 #
@@ -635,6 +647,16 @@ class Router:
         # be the same worker in the pool.
         urls = normalize_worker_urls(urls)
 
+        # The number of workers (tenants of the prefix cache tree) is bounded.
+        # Every worker is polled by the health monitor and every worker owns
+        # a quota of the prefix cache tree, so an unbounded number of workers
+        # multiplies the resource usage of the router (CWE-770).
+        max_workers = self.capacity.max_workers
+        if max_workers and len(self.backends) >= max_workers:
+            msg = f"Worker limit reached: {len(self.backends)} of {max_workers} workers are already registered"
+            logger.warning(msg)
+            return [], list(urls), msg
+
         # 分离已存在和新的 URL
         existing_urls = []
         new_urls = []
@@ -978,8 +1000,15 @@ def make_lifespan(worker_urls: list, policy_config, capacity: Optional[CapacityC
     return lifespan
 
 
-def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
-    app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config))
+def create_app(
+    worker_urls,
+    policy_config,
+    router_port: int = 0,
+    admin_token: str = "",
+    api_token: str = "",
+    capacity: Optional[CapacityConfig] = None,
+) -> FastAPI:
+    app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config, capacity=capacity))
 
     # Authentication state for the management / data planes.
     app.state.admin_token = resolve_token(admin_token, ADMIN_TOKEN_ENV)
@@ -1012,6 +1041,12 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
         urls = body.get("urls")
         if not urls:
             return Response(content="Worker URL required. Provide 'url' query parameter", status_code=400)
+        logger.info(
+            "AUDIT add_workers operator=%s client=%s urls=%s",
+            operator,
+            request.client.host if request.client else "-",
+            len(urls) if isinstance(urls, list) else 1,
+        )
 
         urls_list = [urls] if isinstance(urls, str) else list(urls)
 
@@ -1067,6 +1102,13 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
         urls = body.get("urls")
         if not urls:
             return Response(status_code=400)
+        logger.info(
+            "AUDIT remove_workers operator=%s client=%s urls=%s",
+            operator,
+            request.client.host if request.client else "-",
+            len(urls) if isinstance(urls, list) else 1,
+        )
+
         urls_list = [urls] if isinstance(urls, str) else list(urls)
         # The removal path normalises with the same function as the
         # registration path, so that "http://worker:8001/" and
@@ -1150,6 +1192,9 @@ if __name__ == "__main__":
         router_configuration.worker_urls,
         policy_config,
         router_port=router_configuration.port,
+        admin_token=vars(router_args).get("admin_token", ""),
+        api_token=vars(router_args).get("api_token", ""),
+        capacity=capacity,
     )
     logging.info(f"Initializing router on {router_configuration.host}:{router_configuration.port}")
     logging.info(f"Initializing workers on {router_configuration.worker_urls}")
