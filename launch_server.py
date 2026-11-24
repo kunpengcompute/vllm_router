@@ -542,47 +542,56 @@ class Router:
             RuntimeError: If worker doesn't become healthy within timeout
         """
         start_time = time.time()
-        client = aiohttp.ClientSession()
 
-        while True:
-            # Check timeout
-            if time.time() - start_time > timeout_secs:
-                error_msg = (
-                    f"Timeout {timeout_secs}s waiting for workers {worker_url} to become healthy. "
-                    "Please set --worker-startup-timeout-secs (router.launch_server) "
-                    "or --worker-startup-timeout-secs (worker.router) to a larger value"
-                )
-                logger.error(error_msg)
-                is_healthy = False
-                return is_healthy
+        # A single session is used for the whole wait loop. It used to be
+        # closed inside the loop, which made every retry after the first one
+        # fail with "Session is closed".
+        async with aiohttp.ClientSession(timeout=HEALTH_CHECK_TIMEOUT) as client:
+            while True:
+                # Check timeout
+                if time.time() - start_time > timeout_secs:
+                    error_msg = (
+                        f"Timeout {timeout_secs}s waiting for workers {worker_url} to become healthy. "
+                        "Please set --worker-startup-timeout-secs (router.launch_server) "
+                        "or --worker-startup-timeout-secs (worker.router) to a larger value"
+                    )
+                    logger.error(error_msg)
+                    is_healthy = False
+                    return is_healthy
 
-            # Check health status
-            is_healthy = True
-            unhealthy_worker: str = ""
+                # Check health status
+                is_healthy = True
+                unhealthy_worker: str = ""
 
-            health_url = f"{worker_url}/health"
-            try:
-                async with client.get(health_url) as resp:
-                    if resp.status != 200:
-                        status_msg = f"Worker health check failed with status {resp.status}"
-                        logger.info(status_msg)
-                        is_healthy = False
-                        unhealthy_worker = status_msg
-            except aiohttp.client_exceptions.ClientConnectorError as e:
-                conn_msg = f"Worker connection error: {str(e)}"
-                logger.info(conn_msg)
-                is_healthy = False
-                unhealthy_worker = conn_msg
-            finally:
-                await client.close()
-            # Handle health check results
-            if is_healthy:
-                logger.info(f"{worker_url} worker is healthy")
-                break
-            else:
-                logger.info("Initializing worker:")
-                logger.info(f"  {worker_url} - {unhealthy_worker}")
-                time.sleep(interval_secs)
+                health_url = f"{worker_url}/health"
+                try:
+                    async with client.get(health_url) as resp:
+                        if resp.status != 200:
+                            status_msg = f"Worker health check failed with status {resp.status}"
+                            logger.info(status_msg)
+                            is_healthy = False
+                            unhealthy_worker = status_msg
+                except aiohttp.client_exceptions.ClientConnectorError as e:
+                    conn_msg = f"Worker connection error: {str(e)}"
+                    logger.info(conn_msg)
+                    is_healthy = False
+                    unhealthy_worker = conn_msg
+                except Exception as e:
+                    err_msg = f"Worker health check error: {str(e)}"
+                    logger.info(err_msg)
+                    is_healthy = False
+                    unhealthy_worker = err_msg
+                # Handle health check results
+                if is_healthy:
+                    logger.info(f"{worker_url} worker is healthy")
+                    break
+                else:
+                    logger.info("Initializing worker:")
+                    logger.info(f"  {worker_url} - {unhealthy_worker}")
+                    # Yield control instead of blocking the whole event loop.
+                    # A blocking sleep here lets every unreachable worker stall
+                    # the router for the whole interval.
+                    await asyncio.sleep(interval_secs)
 
         return is_healthy
 
