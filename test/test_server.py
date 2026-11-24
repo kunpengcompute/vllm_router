@@ -6,6 +6,7 @@ from pydantic import ValidationError
 # 测试目标代码中的函数和类
 from launch_server import parse_router_args
 from router.protocol import RouterArgs
+from utils.config import CapacityConfig
 
 
 class TestParseRouterArgs(unittest.TestCase):
@@ -31,7 +32,10 @@ class TestParseRouterArgs(unittest.TestCase):
         self.assertEqual(args.balance_abs_threshold, 32)
         self.assertEqual(args.balance_rel_threshold, 1.0001)
         self.assertEqual(args.eviction_interval_secs, 60)
-        self.assertEqual(args.max_tree_size, 2**24)
+        # The resource limits are resolved by the capacity configuration, so
+        # that they can also be set with an environment variable. The
+        # effective default is unchanged.
+        self.assertEqual(CapacityConfig.from_namespace(vars(args)).max_tree_size, 2**24)
         self.assertEqual(args.log_dir, "")
         self.assertFalse(args.verbose)
 
