@@ -43,6 +43,7 @@ from src.router import (
     RoundRobinRouter,
     RouteSelector,
 )
+from utils.config import CapacityConfig
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
 
@@ -314,8 +315,78 @@ Examples:
         "--max_tree_size",
         dest="max_tree_size",
         type=int,
-        default=2**24,
-        help="Maximum size of the approximation tree for cache-aware routing",
+        # The limit is resolved by the capacity configuration, so that it can
+        # also be set with an environment variable.
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum number of characters a single worker may keep in the prefix cache tree "
+            "(0 disables the limit). Default: the value of VLLM_ROUTER_MAX_TREE_SIZE or 16777216"
+        ),
+    )
+    parser.add_argument(
+        "--max-tree-total-size",
+        "--max_tree_total_size",
+        dest="max_tree_total_size",
+        type=int,
+        # The limit is resolved by the capacity configuration, so that it can
+        # also be set with an environment variable.
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum number of characters all workers together may keep in the prefix cache tree "
+            "(0 disables the limit). Default: the value of VLLM_ROUTER_MAX_TREE_TOTAL_SIZE or 16777216"
+        ),
+    )
+    parser.add_argument(
+        "--max-tree-nodes",
+        "--max_tree_nodes",
+        dest="max_tree_nodes",
+        type=int,
+        # The limit is resolved by the capacity configuration, so that it can
+        # also be set with an environment variable.
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum number of nodes of the prefix cache tree (0 disables the limit). "
+            "Default: the value of VLLM_ROUTER_MAX_TREE_NODES or 16777216"
+        ),
+    )
+    parser.add_argument(
+        "--max-cache-depth",
+        "--max_cache_depth",
+        dest="max_cache_depth",
+        type=int,
+        # The limit is resolved by the capacity configuration, so that it can
+        # also be set with an environment variable.
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum length of a chain in the prefix cache tree (0 disables the limit). "
+            "Default: the value of VLLM_ROUTER_MAX_CACHE_DEPTH or 64"
+        ),
+    )
+    parser.add_argument(
+        "--max-cache-text-length",
+        "--max_cache_text_length",
+        dest="max_cache_text_length",
+        type=int,
+        # The limit is resolved by the capacity configuration, so that it can
+        # also be set with an environment variable.
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum number of characters of a request that are stored in the prefix cache tree "
+            "(0 disables the limit). Default: the value of VLLM_ROUTER_MAX_CACHE_TEXT_LENGTH or 4096"
+        ),
+    )
+    parser.add_argument(
+        "--max-workers",
+        "--max_workers",
+        dest="max_workers",
+        type=int,
+        # The limit is resolved by the capacity configuration, so that it can
+        # also be set with an environment variable.
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum number of worker instances that may be registered at the same time "
+            "(0 disables the limit). Default: the value of VLLM_ROUTER_MAX_WORKERS or 256"
+        ),
     )
     parser.add_argument(
         "--log-dir",
@@ -426,8 +497,11 @@ class BackendService:
 class Router:
     def __init__(
         self,
+        capacity: Optional[CapacityConfig] = None,
     ):
         self.router = None
+        # Every resource limit of the router, see utils/config.py.
+        self.capacity = capacity or CapacityConfig()
         self.router_selector = RouteSelector()
         self.backends = {}
         self.session_timeout = aiohttp.ClientTimeout(
@@ -542,16 +616,36 @@ class Router:
         add_urls_succeed = []
         add_urls_failed = existing_urls.copy()  # 已存在的 URL 视为失败
 
-        for url, is_healthy in health_results.items():
-            if is_healthy:
+        # The quota is enforced while the workers are committed, not only
+        # before the health check: two concurrent registrations could both
+        # pass the check above and together push the router over the quota.
+        # The lock serialises the check and the commit, the second
+        # registration sees the workers of the first one.
+        async with self.lock:
+            for url, is_healthy in health_results.items():
+                if not is_healthy:
+                    add_urls_failed.append(url)
+                    continue
+
+                # self.backends already contains the workers that were
+                # committed by this request, so it is the number of workers
+                # that are registered right now.
+                if max_workers and len(self.backends) >= max_workers:
+                    logger.warning(
+                        "Worker limit reached: %s of %s workers are already registered, %s is rejected",
+                        len(self.backends),
+                        max_workers,
+                        url,
+                    )
+                    add_urls_failed.append(url)
+                    continue
+
                 backend = BackendService(url)
                 self.backends[url] = backend
                 add_urls_succeed.append(url)
 
                 if self.router:
                     await self.router_selector.add_worker(url, self.router)
-            else:
-                add_urls_failed.append(url)
 
         # 生成结果消息
         res_parts = []
@@ -720,12 +814,13 @@ class Router:
             return StreamingResponse(stream_gen(), media_type="text/event-stream")
 
     @staticmethod
-    def get_text_from_request(body, api: str) -> str:
+    def extract_request_text(body, api: str) -> str:
+        """Extract the raw text of a request, without truncating it."""
         if api == "generate":
             # For "/generate", always use the "text" field.
-            text = body.get("text")
-            if isinstance(text, str):
-                return text
+            value = body.get("text")
+            if isinstance(value, str):
+                return value
             logger.warning("No 'text' field found in request body for /generate")
             return ""
 
@@ -740,6 +835,27 @@ class Router:
 
         logger.warning(f"Unknown route: {api} - using fallback")
         return ""
+
+    def get_text_from_request(self, body, api: str) -> str:
+        """Extract the text that is used for the cache aware routing.
+
+        The text is truncated to the configured maximum length. Only a
+        bounded prefix of a prompt is relevant for the routing decision, but
+        an unbounded text is stored in the prefix cache tree and would let a
+        client blow up the memory of the router (CWE-400).
+
+        The limit is the very same one that the tree uses, so that the
+        request path and the tree always agree on how much of a prompt is
+        cached. Before, the request path truncated with a hard coded value
+        while the tree used a configurable one, so a prompt could be cached
+        completely or not at all depending on the path it took.
+        """
+        text = self.extract_request_text(body, api)
+
+        max_length = self.capacity.max_cache_text_length
+        if max_length and len(text) > max_length:
+            text = text[:max_length]
+        return text
 
     def select_generate_worker(self, body, api: str) -> str:
         if isinstance(self.router, (RoundRobinRouter, RandomRouter)):
@@ -804,10 +920,10 @@ class Router:
             return await self.async_deepcopy(set(self.router.worker_urls))
 
 
-def make_lifespan(worker_urls: list, policy_config):
+def make_lifespan(worker_urls: list, policy_config, capacity: Optional[CapacityConfig] = None):
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.router = Router()
+        app.router = Router(capacity=capacity)
         await app.router.init_router(worker_urls, policy_config)
         logger.info("Load router initialized")
         yield
@@ -924,9 +1040,22 @@ if __name__ == "__main__":
     import uvicorn
 
     router_args = parse_router_args()
-    router_configuration = RouterArgs(**vars(router_args))
+    router_args_dict = dict(vars(router_args))
+
+    # Every resource limit of the router, see utils/config.py. The limits are
+    # read from the parsed arguments directly, the request model does not
+    # know them.
+    capacity = CapacityConfig.from_namespace(router_args_dict)
+
+    # The request model requires a value for max_tree_size, the limit itself
+    # is resolved by the capacity configuration above.
+    router_args_dict["max_tree_size"] = router_args_dict.get("max_tree_size") or 2**24
+
+    router_configuration = RouterArgs(**router_args_dict)
 
     setup_logger(router_configuration.log_dir, router_configuration.verbose)
+
+    logger.info(f"Capacity limits: {capacity.describe()}")
     route_policy = router_configuration.policy
     if route_policy == "random":
         policy_config = RandomConfig(
@@ -944,7 +1073,7 @@ if __name__ == "__main__":
             balance_abs_threshold=router_configuration.balance_abs_threshold,
             balance_rel_threshold=router_configuration.balance_rel_threshold,
             eviction_interval_secs=router_configuration.eviction_interval_secs,
-            max_tree_size=router_configuration.max_tree_size,
+            capacity=capacity,
             timeout_secs=router_configuration.worker_startup_timeout_secs,
             interval_secs=router_configuration.worker_startup_check_interval,
         )
