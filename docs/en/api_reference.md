@@ -11,7 +11,7 @@ The management endpoints (`/add_workers`, `/remove_workers`, `/list_workers`, `/
 | Endpoint | Default auth | Description |
 |----------|--------------|-------------|
 | `GET /health` | none | Liveness probe, always public. |
-| Management endpoints | **optional (off by default)** | Without `--admin-token` (or the `VLLM_ROUTER_ADMIN_TOKEN` environment variable) the endpoints are not authenticated, exactly like before the upgrade. Once configured, the caller must send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`, otherwise 401 is returned. |
+| Management endpoints | **optional (off by default)** | Without `--admin-token` (or the `VLLM_ROUTER_ADMIN_TOKEN` environment variable) the endpoints are not authenticated, exactly like before the upgrade. Once configured, the caller must send `Authorization: Bearer {token}` or `X-Admin-Token: {token}`, otherwise 401 is returned. |
 | `POST /v1/completions` | optional | When `--api-token` (or `VLLM_ROUTER_API_TOKEN`) is configured the token is required, otherwise 401 is returned. Without the option the endpoint is not authenticated. |
 
 A token should be at least 16 characters long, a shorter one is reported with a warning but is not rejected. Failed authentication attempts and every management operation are written to the audit log.
@@ -27,13 +27,13 @@ A token should be at least 16 characters long, a shorter one is reported with a 
 2. Inject it through the environment (recommended, the token does not show up in the process list):
 
    ```bash
-   export VLLM_ROUTER_ADMIN_TOKEN='<token>'
-   export VLLM_ROUTER_API_TOKEN='<token>'
+   export VLLM_ROUTER_ADMIN_TOKEN='{token}'
+   export VLLM_ROUTER_API_TOKEN='{token}'
    ```
 
    The command line options `--admin-token` / `--api-token` are an alternative and win over the environment variables.
 3. Restart the router. The management endpoints now require the token, a request without the token or with a wrong one is answered with 401.
-4. The clients have to send `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
+4. The clients have to send `Authorization: Bearer {token}` or `X-Admin-Token: {token}`.
 
 > The switch does not change the path or the payload of any endpoint. Without a token the clients need no change at all. With a token the existing clients receive a 401, so step 4 has to be finished before the restart.
 

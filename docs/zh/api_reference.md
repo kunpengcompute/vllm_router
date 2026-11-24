@@ -11,7 +11,7 @@
 | 接口 | 默认鉴权 | 说明 |
 |------|----------|------|
 | `GET /health` | 无 | 存活探测，始终公开。 |
-| 管理面接口 | **可选（默认关闭）** | 未配置 `--admin-token`（或环境变量 `VLLM_ROUTER_ADMIN_TOKEN`）时不鉴权，与升级前行为一致；配置后需携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`，否则返回 401。 |
+| 管理面接口 | **可选（默认关闭）** | 未配置 `--admin-token`（或环境变量 `VLLM_ROUTER_ADMIN_TOKEN`）时不鉴权，与升级前行为一致；配置后需携带 `Authorization: Bearer {token}` 或 `X-Admin-Token: {token}`，否则返回 401。 |
 | `POST /v1/completions` | 可选 | 配置 `--api-token`（或环境变量 `VLLM_ROUTER_API_TOKEN`）后需携带令牌，否则返回 401；未配置时不鉴权。 |
 
 令牌长度建议不少于 16 个字符，短于该长度时 router 会打印告警但不会拒绝该令牌。管理面鉴权失败与所有管理操作均会记录审计日志。
@@ -27,13 +27,13 @@
 2. 通过环境变量注入（推荐，避免令牌出现在进程列表中）：
 
    ```bash
-   export VLLM_ROUTER_ADMIN_TOKEN='<token>'
-   export VLLM_ROUTER_API_TOKEN='<token>'
+   export VLLM_ROUTER_ADMIN_TOKEN='{token}'
+   export VLLM_ROUTER_API_TOKEN='{token}'
    ```
 
    也可使用命令行参数 `--admin-token` / `--api-token`（优先级高于环境变量）。
 3. 重启 router，管理面接口即开始校验令牌：未携带令牌或令牌错误的请求返回 401。
-4. 客户端需在请求中携带 `Authorization: Bearer <token>` 或 `X-Admin-Token: <token>`。
+4. 客户端需在请求中携带 `Authorization: Bearer {token}` 或 `X-Admin-Token: {token}`。
 
 > 鉴权开关不改变任何接口的路径与报文格式。未配置令牌时客户端无需任何改动；已配置令牌后，未携带令牌的既有客户端会收到 401，请先完成第 4 步再重启。
 
