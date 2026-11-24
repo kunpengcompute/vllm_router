@@ -32,10 +32,9 @@ A token should be at least 16 characters long, a shorter one is reported with a 
    ```
 
    The command line options `--admin-token` / `--api-token` are an alternative and win over the environment variables.
-3. Restart the router. The management endpoints now require the token, a request without the token or with a wrong one is answered with 401.
-4. The clients have to send `Authorization: Bearer {token}` or `X-Admin-Token: {token}`.
+3. Restart the router. From that moment on the management endpoints require the token: the clients have to send `Authorization: Bearer {token}` or `X-Admin-Token: {token}`, a request without the token or with a wrong one is answered with 401.
 
-> The switch does not change the path or the payload of any endpoint. Without a token the clients need no change at all. With a token the existing clients receive a 401, so step 4 has to be finished before the restart.
+> The switch does not change the path or the payload of any endpoint. Without a token the clients need no change at all. With a token the existing clients receive a 401, so make sure that the clients send the token before the restart.
 
 ## POST /add_workers
   
