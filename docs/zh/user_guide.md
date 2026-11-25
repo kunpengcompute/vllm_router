@@ -48,13 +48,13 @@
 [benchmark_utils.py](https://github.com/vllm-project/vllm/blob/v0.8.2/benchmarks/benchmark_utils.py)四个文件。在这四个文件的存放路径下执行以下命令启动性能测试。
 
 ```bash
-python benchmark_serving.py --model /path/to/model/ --port xxxx --dataset_name random --random-input-len xx --random-output-len xxx --ignore-eos --num-prompts xx --request_rate xx
+python benchmark_serving.py --model /path/to/model/ --port <port> --dataset_name random --random-input-len <len> --random-output-len <len> --ignore-eos --num-prompts xx --request_rate xx
 ```
 
 其中：
 
 - --model为使用的模型路径，需要与启动vLLM实例时设置的`/path/to/model/`一致。
-- --port为路由服务（Router）的对外端口。
+- --port为路由服务（Router）的对外端口，如8008。
 - --dataset_name为进行性能测试时使用的数据集，random表示使用随机数据。
 - --random-input-len为进行性能测试时随机输入的长度。
 - --random-output-len为进行性能测试时输出的长度。
