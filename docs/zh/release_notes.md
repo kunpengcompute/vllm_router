@@ -4,24 +4,10 @@
 
 ### 产品版本信息
 
-<a name="table62675726"></a>
-<table><tbody><tr id="row41561572"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.1.1"><p id="p11044137"><a name="p11044137"></a><a name="p11044137"></a>产品名称</p>
-</th>
-<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.1.1 "><p id="p1597721693713"><a name="p1597721693713"></a><a name="p1597721693713"></a>Kunpeng BoostKit</p>
-</td>
-</tr>
-<tr id="row1930811171892"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.3.1"><p id="p2030912172097"><a name="p2030912172097"></a><a name="p2030912172097"></a>软件名称</p>
-</th>
-<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.3.1 "><p id="p1730912179911"><a name="p1730912179911"></a><a name="p1730912179911"></a>vLLM-Router（vLLM数据并行路由插件）</p>
-</td>
-</tr>
-<tr id="row5497143514612"><th class="firstcol" valign="top" width="42.17%" id="mcps1.1.3.4.1"><p id="p162251517551"><a name="p162251517551"></a><a name="p162251517551"></a>软件包版本</p>
-</th>
-<td class="cellrowborder" valign="top" width="57.830000000000005%" headers="mcps1.1.3.4.1 "><p id="p6225131165519"><a name="p6225131165519"></a><a name="p6225131165519"></a>V1.0.0</p>
-</td>
-</tr>
-</tbody>
-</table>
+| 产品名称 | Kunpeng BoostKit |
+| --- | --- |
+| 软件名称 | vLLM-Router（vLLM数据并行路由插件） |
+| 软件包版本 | V1.0.0 |
 
 ### 与操作系统和CPU配套说明
 
