@@ -48,7 +48,7 @@
 [benchmark_utils.py](https://github.com/vllm-project/vllm/blob/v0.8.2/benchmarks/benchmark_utils.py)四个文件。在这四个文件的存放路径下执行以下命令启动性能测试。
 
 ```bash
-python benchmark_serving.py --model /path/to/model/ --port <port> --dataset_name random --random-input-len <len> --random-output-len <len> --ignore-eos --num-prompts xx --request_rate xx
+python benchmark_serving.py --model /path/to/model/ --port <port> --dataset_name random --random-input-len <len> --random-output-len <len> --ignore-eos --num-prompts <num> --request_rate <rate>
 ```
 
 其中：
