@@ -24,7 +24,14 @@ from heapq import heappop, heappush
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
+from utils.config import CapacityConfig
 from utils.logger import logger
+
+# The global budget is evicted down to this ratio of the budget instead of
+# exactly to the budget. Evicting down to the budget makes the very next
+# insertion exceed it again, which would run the (linear) eviction on every
+# single request.
+GLOBAL_EVICTION_LOW_WATER_RATIO = 0.9
 
 
 def shared_prefix_count(a: str, b: str) -> int:
@@ -425,7 +432,63 @@ class Tree:
                     timestamp = curr.tenant_last_access_time[tenant]
                     heappush(pq, EvictionEntry(timestamp, tenant, curr))
 
+        return pq
+
+    def _evict_entry(self, pq, entry) -> int:
+        """Drop one tenant from one node.
+
+        Returns the number of characters that were freed.
+        """
+        tenant = entry.tenant
+        node = entry.node
+        freed = 0
+
+        # Decrement when removing tenant from node
+        if tenant in node.tenant_last_access_time:
+            freed = len(node.text)
+            self.tenant_char_count[tenant] -= freed
+
+        # Remove tenant from node
+        del node.tenant_last_access_time[tenant]
+
+        # Remove empty nodes
+        if not node.children and not node.tenant_last_access_time:
+            if node.parent:
+                first_char = node.text[0] if node.text else None
+                if first_char:
+                    # The key of a child is the first character of its text,
+                    # but the parent may have been split in the meantime. The
+                    # identity check avoids a KeyError on a stale key.
+                    if node.parent.children.get(first_char) is node:
+                        del node.parent.children[first_char]
+                        self._release_node()
+
+        # Add parent to queue if it becomes a leaf
+        if node.parent:
+            if tenant in self.leaf_of(node.parent):
+                if tenant in node.parent.tenant_last_access_time:
+                    timestamp = node.parent.tenant_last_access_time[tenant]
+                    heappush(pq, EvictionEntry(timestamp, tenant, node.parent))
+
+        return freed
+
+    def evict_tenant_by_size(self, max_size: int):
+        """Trim every tenant to its own character quota.
+
+        The quota is a *per tenant* limit, see evict_to_global_size() for the
+        limit that applies to the tree as a whole. A quota of 0 disables the
+        per tenant limit.
+        """
+        # The state of the tree is logged before the early return below: the
+        # eviction state stays observable even when the per tenant quota is
+        # disabled. Before the quota was introduced the state was printed
+        # unconditionally.
         logger.debug("Before eviction - used size per tenant: %s", dict(self.tenant_char_count))
+
+        if not max_size:
+            return
+
+        pq = self._collect_eviction_entries()
 
         # Process eviction
         while pq:
@@ -447,7 +510,66 @@ class Tree:
         registering many tenants: every one of them keeps a full quota, so
         the memory used by the tree grows with the number of tenants (CWE-770).
 
-        logger.debug("After eviction - used size per tenant: %s", dict(self.tenant_char_count))
+        The least recently used leaves are dropped first. A budget of 0
+        disables the global limit.
+        """
+        if not global_max:
+            return
+
+        total = sum(self.tenant_char_count.values())
+        if total <= global_max:
+            return
+
+        pq = self._collect_eviction_entries()
+        while pq and total > global_max:
+            entry = heappop(pq)
+            total -= self._evict_entry(pq, entry)
+
+    def enforce_global_budget(self) -> None:
+        """Keep the tree inside its global character budget.
+
+        The periodic eviction thread only runs every eviction_interval_secs.
+        Between two of its cycles the tree keeps growing, so the budget was
+        not a real limit: a client that sends many requests could fill the
+        memory of the router in the seconds between two cycles.
+
+        The tree is evicted down to a low water mark instead of exactly to
+        the budget. Evicting down to the budget makes the very next request
+        exceed it again and would run the eviction on every request.
+        """
+        if not self.max_total_chars:
+            return
+
+        total = sum(self.tenant_char_count.values())
+        if total <= self.max_total_chars:
+            return
+
+        low_water = int(self.max_total_chars * GLOBAL_EVICTION_LOW_WATER_RATIO)
+        self.evict_to_global_size(low_water)
+
+    def reclaim_node_budget(self) -> int:
+        """Free nodes by evicting the least recently used leaves.
+
+        The node budget is a hard limit, but without a reclamation path a
+        tree that reached its budget could never accept a new node again,
+        not even when all of its tenants moved on to completely different
+        prompts. The eviction order is the LRU order that the periodic
+        eviction uses.
+
+        Returns the number of nodes that were freed.
+        """
+        if not self.max_nodes:
+            return 0
+
+        freed = 0
+        pq = self._collect_eviction_entries()
+        while pq and self.get_node_count() >= self.max_nodes:
+            entry = heappop(pq)
+            before = self.get_node_count()
+            self._evict_entry(pq, entry)
+            freed += before - self.get_node_count()
+
+        return freed
 
     def remove_tenant(self, tenant: str):
         # 1. Find all the leaves for the tenant
@@ -487,7 +609,9 @@ class Tree:
                     queue.append(parent)
 
         # 3. Remove the tenant from the tenant_char_count map
-        del self.tenant_char_count[tenant]
+        # ``pop`` instead of ``del``: the tenant may never have been inserted,
+        # and a KeyError would turn the removal into an internal server error.
+        self.tenant_char_count.pop(tenant, None)
 
     def get_tenant_char_count(self) -> Dict[str, int]:
         with self.lock:

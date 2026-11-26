@@ -24,11 +24,11 @@ import time
 from asyncio import Semaphore
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.requests import Request
 
@@ -43,9 +43,21 @@ from src.router import (
     RoundRobinRouter,
     RouteSelector,
 )
+from utils.auth import (
+    ADMIN_TOKEN_ENV,
+    API_TOKEN_ENV,
+    require_admin,
+    require_api_token,
+    resolve_token,
+)
 from utils.config import CapacityConfig
 from utils.error import NoAvailableWorkerError
 from utils.logger import logger
+
+# Timeout of a single health check request. Without an explicit bound a slow
+# target can hold an outbound connection (and a slot of the health check
+# semaphore) for the default aiohttp timeout of five minutes.
+HEALTH_CHECK_TIMEOUT = aiohttp.ClientTimeout(total=5, sock_connect=3, sock_read=3)
 
 # Maximum number of worker URLs accepted in a single registration request.
 #
@@ -402,6 +414,36 @@ Examples:
         help="Enable verbose logging",
     )
 
+    # Authentication / authorization
+    #
+    # The authentication is opt in: the endpoints are not protected as long
+    # as no token is configured. The options are not part of the request
+    # model, they are read from the parsed arguments directly.
+    parser.add_argument(
+        "--admin-token",
+        "--admin_token",
+        dest="admin_token",
+        type=str,
+        default=argparse.SUPPRESS,
+        help=(
+            "Shared secret required by the management endpoints "
+            "(/add_workers, /remove_workers, /list_workers, /pretty_print_tree). "
+            f"May also be provided via the {ADMIN_TOKEN_ENV} environment variable. "
+            "The management endpoints are not protected when no token is configured."
+        ),
+    )
+    parser.add_argument(
+        "--api-token",
+        "--api_token",
+        dest="api_token",
+        type=str,
+        default=argparse.SUPPRESS,
+        help=(
+            "Optional shared secret required by the inference endpoint /v1/completions. "
+            f"May also be provided via the {API_TOKEN_ENV} environment variable."
+        ),
+    )
+
     args = parser.parse_args()
 
     return args
@@ -605,6 +647,16 @@ class Router:
         # be the same worker in the pool.
         urls = normalize_worker_urls(urls)
 
+        # The number of workers (tenants of the prefix cache tree) is bounded.
+        # Every worker is polled by the health monitor and every worker owns
+        # a quota of the prefix cache tree, so an unbounded number of workers
+        # multiplies the resource usage of the router (CWE-770).
+        max_workers = self.capacity.max_workers
+        if max_workers and len(self.backends) >= max_workers:
+            msg = f"Worker limit reached: {len(self.backends)} of {max_workers} workers are already registered"
+            logger.warning(msg)
+            return [], list(urls), msg
+
         # 分离已存在和新的 URL
         existing_urls = []
         new_urls = []
@@ -701,7 +753,13 @@ class Router:
             if url in self.backends:
                 self.backends.pop(url)
                 delete_urls_succeed.append(url)
-                self.router_selector.remove_worker(url, self.router)
+                # The policy router is only created when the router was started
+                # with at least one worker. A worker that was registered while
+                # no policy router existed is only known to the backend pool,
+                # so there is nothing to remove from the router. Without this
+                # guard the endpoint answered with an internal server error.
+                if self.router is not None:
+                    self.router_selector.remove_worker(url, self.router)
             else:
                 delete_urls_failed.append(url)
                 logger.info(f"Worker {url} not found, skipping removal")
@@ -942,26 +1000,53 @@ def make_lifespan(worker_urls: list, policy_config, capacity: Optional[CapacityC
     return lifespan
 
 
-def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
-    app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config))
+def create_app(
+    worker_urls,
+    policy_config,
+    router_port: int = 0,
+    admin_token: str = "",
+    api_token: str = "",
+    capacity: Optional[CapacityConfig] = None,
+) -> FastAPI:
+    app = FastAPI(lifespan=make_lifespan(worker_urls, policy_config, capacity=capacity))
+
+    # Authentication state for the management / data planes.
+    app.state.admin_token = resolve_token(admin_token, ADMIN_TOKEN_ENV)
+    app.state.api_token = resolve_token(api_token, API_TOKEN_ENV)
+
+    if app.state.admin_token:
+        logger.info("The management endpoints require the admin token.")
+    else:
+        logger.warning(
+            "No admin token configured: the management endpoints "
+            "(/add_workers, /remove_workers, /list_workers, /pretty_print_tree) "
+            "are not protected. Set %s or --admin-token to require a token.",
+            ADMIN_TOKEN_ENV,
+        )
 
     @app.get("/health")
     async def alive():
         print("收到测活请求")
         return "OK"
 
-    @app.post("/v1/completions")
+    @app.post("/v1/completions", dependencies=[Depends(require_api_token)])
     async def generate(body: CompletionRequest, request: Request):
         body = body.model_dump()
         res = await app.router.forward_request(body, "v1/completions")
         return res
 
     @app.post("/add_workers")
-    async def add_workers(body: WorkUrls, request: Request) -> Response:
+    async def add_workers(body: WorkUrls, request: Request, operator: str = Depends(require_admin)) -> Response:
         body = body.model_dump()
         urls = body.get("urls")
         if not urls:
             return Response(content="Worker URL required. Provide 'url' query parameter", status_code=400)
+        logger.info(
+            "AUDIT add_workers operator=%s client=%s urls=%s",
+            operator,
+            request.client.host if request.client else "-",
+            len(urls) if isinstance(urls, list) else 1,
+        )
 
         urls_list = [urls] if isinstance(urls, str) else list(urls)
 
@@ -1001,17 +1086,29 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
         return Response(content=msg)
 
     @app.get("/list_workers")
-    async def list_workers() -> Response:
+    async def list_workers(request: Request, operator: str = Depends(require_admin)) -> Response:
+        logger.info(
+            "AUDIT list_workers operator=%s client=%s",
+            operator,
+            request.client.host if request.client else "-",
+        )
         urls = await app.router.get_worker_urls()
         msg = f"{urls}"
         return Response(content=msg)
 
     @app.post("/remove_workers")
-    async def remove_workers(body: WorkUrls, request: Request) -> Response:
+    async def remove_workers(body: WorkUrls, request: Request, operator: str = Depends(require_admin)) -> Response:
         body = body.model_dump()
         urls = body.get("urls")
         if not urls:
             return Response(status_code=400)
+        logger.info(
+            "AUDIT remove_workers operator=%s client=%s urls=%s",
+            operator,
+            request.client.host if request.client else "-",
+            len(urls) if isinstance(urls, list) else 1,
+        )
+
         urls_list = [urls] if isinstance(urls, str) else list(urls)
         # The removal path normalises with the same function as the
         # registration path, so that "http://worker:8001/" and
@@ -1020,7 +1117,12 @@ def create_app(worker_urls, policy_config, router_port: int = 0) -> FastAPI:
         return Response(content=msg)
 
     @app.get("/pretty_print_tree")
-    async def pretty_print_tree() -> Response:
+    async def pretty_print_tree(request: Request, operator: str = Depends(require_admin)) -> Response:
+        logger.info(
+            "AUDIT pretty_print_tree operator=%s client=%s",
+            operator,
+            request.client.host if request.client else "-",
+        )
         if isinstance(app.router.router, CacheAwareRouter):
             msg, node_count = app.router.router.tree.pretty_print()
             msg = msg + "\n" + "The total number of node is: " + str(node_count)
@@ -1090,6 +1192,9 @@ if __name__ == "__main__":
         router_configuration.worker_urls,
         policy_config,
         router_port=router_configuration.port,
+        admin_token=vars(router_args).get("admin_token", ""),
+        api_token=vars(router_args).get("api_token", ""),
+        capacity=capacity,
     )
     logging.info(f"Initializing router on {router_configuration.host}:{router_configuration.port}")
     logging.info(f"Initializing workers on {router_configuration.worker_urls}")
