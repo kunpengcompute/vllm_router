@@ -1,5 +1,7 @@
 # API参考
 
+本文档介绍API参考，列出文本补全接口、vLLM服务实例的增加、删除与列表查询接口、存活检查与缓存树查看接口，以及路由服务（Router）初始化参数，适用于需要调用接口或初始化路由服务的用户。
+
 ## POST /v1/completions
 
 本接口为文本补全（completion）服务的请求参数规范。由于本软件实现的是对vLLM服务实例的路由，需要将接收到的请求透传给vLLM实例，故该接口完全兼容vLLM（0.8.2）的/v1/completions接口。
@@ -24,13 +26,13 @@
 
 ## GET /health
 
-检查本服务端是否存活。
+检查本路由服务（Router）是否存活。
 
 ## GET /pretty_print_tree
 
 当使用缓存感知路由策略时，输出前缀缓存树结构及树的节点数，方便调试。
 
-## 路由器初始化参数
+## 路由服务（Router）初始化参数
 
 本接口定义了请求路由服务（Router） 的启动配置参数，用于初始化一个智能分发请求到多个vLLM服务实例的路由服务。支持多种负载均衡策略（随机、轮询、缓存感知），并内置健康检查、缓存亲和性调度、日志管理等企业级功能。
 
@@ -46,7 +48,7 @@
 
   | 参数名 | 类型 | 默认值 | 说明 |
   |------ | --------------------- | ----- | ---------- |
-  | policy | Literal["random", "round_robin", "cache_aware"] | "cache_aware"  | 请求分发策略。<br>random：随机选择。<br>round_robin：轮询。<br>cache_aware：前缀缓存感知，若使用该路由策略，那么启动vLLM推理实例时，须设置enable-prefix-caching和enable-chunked-prefill两个参数 。 |
+  | policy | Literal["random", "round_robin", "cache_aware"] | "cache_aware"  | 请求分发策略。<br>random：随机选择。<br>round_robin：轮询。<br>cache_aware：前缀缓存感知，若使用该路由策略，那么启动vLLM服务实例时，须设置enable-prefix-caching和enable-chunked-prefill两个参数 。 |
 
 - Worker健康检查
 
@@ -71,3 +73,9 @@
   | ------------ | ------------ | ------------ | ------------ | ------------ |
   | log_dir | str | "" | 日志输出目录（绝对路径）。若为空则输出到控制台。 | 必须为绝对路径，父目录必须存在且可写。若文件存在，必须可写。 |
   | verbose | bool | False | 是否启用详细日志输出。 | - |
+
+## 修订记录
+
+|文档版本| 发布日期   | 修改说明         |
+|----------| ---------- | ---------------- |
+|01| 2025-12-30 | 第一次正式发布。 |

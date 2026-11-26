@@ -61,7 +61,7 @@ vLLM-Router本身的版本说明，具体请参见《[版本说明书](./docs/zh
 
 ## 贡献声明
 
-欢迎大家为社区做贡献，如果使用过程中有任何问题/建议，或者需要反馈特性需求和bug报告，可以提交issues联系我们，具体贡献方法可参考[这里](https://gitcode.com/boostkit/community/blob/master/docs/contributor/contributing.md)。同时也欢迎大家在[讨论专区](https://gitcode.com/boostkit/community/discussions)展开讨论交流。感谢您的支持。
+欢迎大家为社区做贡献，如果使用过程中有任何问题/建议，或者需要反馈特性需求和bug报告，可以提交issues联系我们，具体贡献方法可参考[贡献指南](https://gitcode.com/boostkit/community/blob/master/docs/contributor/contributing.md)。同时也欢迎大家在[讨论专区](https://gitcode.com/boostkit/community/discussions)展开讨论交流。感谢您的支持。
 
 ## 免责声明
 
@@ -70,8 +70,14 @@ vLLM-Router本身的版本说明，具体请参见《[版本说明书](./docs/zh
 ## 许可证书
 
 本项目采用Apache License 2.0，详见[LICENSE](./LICENSE)文件
-本项目文档适用CC-BY 4.0许可证，具体请参见[LICENSE](./CC-BY)文件。
+本项目文档适用CC-BY 4.0许可证，具体请参见[CC-BY](./CC-BY)文件。
 
 ## 致谢
 
 感谢来自社区的每一个PR，欢迎贡献vLLM-Router！
+
+## 修订记录
+
+|文档版本| 发布日期   | 修改说明         |
+|----------| ---------- | ---------------- |
+|01| 2025-12-30 | 第一次正式发布。 |
